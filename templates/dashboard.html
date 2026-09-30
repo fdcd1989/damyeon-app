@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ user.name }}님의 평가 목록</h1>
+<p class="desc">{{ user.org_group }} / {{ user.team }} · {{ user.role }}
+  &nbsp;|&nbsp; <a href="/logout">로그아웃</a>
+  {% if user.is_admin %}&nbsp;|&nbsp; <a href="/admin">관리자 화면</a>{% endif %}
+</p>
+
+{% if is_locked %}
+<div class="lock-banner">🔒 평가가 마감되었습니다{% if deadline %} ({{ deadline }} 마감){% endif %}. 더 이상 제출/수정할 수 없습니다.</div>
+{% endif %}
+
+<div class="stat-row">
+  <div class="stat-box">
+    <div class="stat-label">해야 할 평가</div>
+    <div class="stat-value">{{ pending_count }}건</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">완료</div>
+    <div class="stat-value">{{ completed_count }}건</div>
+  </div>
+</div>
+
+{% if not categories %}
+<div class="card">아직 배정된 평가가 없습니다.</div>
+{% endif %}
+
+{% for cat in categories %}
+<h2 style="color:{{ cat.color }};">
+  {{ cat.label }}
+  <span style="font-size:12px;color:var(--gray);font-weight:400;">{{ cat.entries|length }}건</span>
+</h2>
+{% for m in cat.entries %}
+<a href="/evaluate/{{ m.mapping_id }}" style="text-decoration:none;color:inherit;">
+  <div class="card card-flex">
+    <div>
+      <div style="font-weight:600;">{{ m.target_name }}</div>
+      <div style="font-size:12px;color:var(--gray);">
+        {{ m.relation_label }}{% if not m.done %} · {{ m.answered }}/{{ m.total_questions }}문항{% endif %}
+      </div>
+    </div>
+    {% if m.done %}
+    <span class="badge badge-done">완료</span>
+    {% else %}
+    <span class="badge badge-pending">진행</span>
+    {% endif %}
+  </div>
+</a>
+{% endfor %}
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>로그인</h1>
+<p class="desc">
+  ⚠️ 개발용 임시 로그인입니다. 실제 운영 시에는 Slack 로그인으로 교체됩니다.
+  본인 이름을 선택하세요. (관리자 계정은 목록 맨 위 "관리자"입니다.)
+</p>
+
+{% if not employees %}
+<div class="card">아직 등록된 인원이 없습니다. 관리자로 먼저 로그인해서 로스터를 업로드하세요.</div>
+{% endif %}
+
+<form method="post" action="/login">
+  <select name="employee_id" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);font-size:14px;margin-bottom:12px;">
+    {% for e in employees %}
+    <option value="{{ e.id }}">{{ e.name }} — {{ e.org_group }}/{{ e.team }} ({{ e.role }}){% if e.is_admin %} · 관리자{% endif %}</option>
+    {% endfor %}
+  </select>
+  <button class="btn" type="submit" style="width:100%;">로그인</button>
+</form>
+
+<footer class="note">
+  문의: 담당자에게 문의해주세요.
+</footer>
+{% endblock %}

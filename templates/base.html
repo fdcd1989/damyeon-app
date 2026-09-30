@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>다면평가</title>
+<style>
+  :root {
+    --navy: #1F3864; --blue: #2F5FA8; --panel: #EEF1F6; --gray: #6B7280;
+    --border: #E2E6ED; --green: #1F8A57; --greenbg: #EAF5EF; --red: #B23B3B;
+    --purple: #6D28D9; --purplebg: #F3EEFC;
+    --amber: #B7791F; --amberbg: #FFF8EC; --amberborder: #D9A441;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif;
+    background: #F7F8FA; margin: 0; color: #222;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 60px; }
+  header.top { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+  .logo {
+    width: 32px; height: 32px; border-radius: 6px; background: #fff; color: var(--navy);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0;
+    overflow: hidden;
+  }
+  .logo img { width: 100%; height: 100%; object-fit: contain; padding: 1px; }
+  .brand-sub { font-size: 12px; color: var(--gray); }
+  .brand-title { font-size: 15px; font-weight: 600; color: var(--navy); }
+  footer.credit {
+    margin-top: 36px; padding-top: 14px; border-top: 1px solid var(--border);
+    font-size: 11.5px; color: #9CA3AF; text-align: center;
+  }
+  h1 { font-size: 20px; color: var(--navy); margin: 0 0 6px; }
+  h2 { font-size: 16px; color: var(--navy); margin: 28px 0 10px; }
+  p.desc { color: var(--gray); font-size: 14px; margin: 0 0 20px; }
+  .card {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 12px;
+  }
+  .card-flex { display: flex; align-items: center; justify-content: space-between; }
+  .badge {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px; font-weight: 600;
+  }
+  .badge-pending { background: #FBF3E6; color: #C98A1F; }
+  .badge-done { background: var(--greenbg); color: var(--green); }
+  .btn {
+    display: inline-block; background: var(--navy); color: #fff; text-decoration: none;
+    padding: 9px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; border: none; cursor: pointer;
+  }
+  .btn-secondary { background: var(--panel); color: var(--navy); }
+  .btn:hover { opacity: 0.9; }
+  a { color: var(--blue); }
+  .stat-row { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+  .stat-box { background: var(--panel); border-radius: 8px; padding: 10px 14px; flex: 1; min-width: 110px; }
+  .stat-label { font-size: 12px; color: var(--gray); }
+  .stat-value { font-size: 20px; font-weight: 700; color: var(--navy); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--gray); font-weight: 600; }
+  .scale-row { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  .scale-opt input { display: none; }
+  .scale-opt label {
+    display: flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; border-radius: 8px; border: 1.5px solid var(--border);
+    cursor: pointer; font-weight: 600; color: #444;
+  }
+  .scale-opt input:checked + label { background: var(--navy); border-color: var(--navy); color: #fff; }
+  .scale-opt.na label { width: auto; padding: 0 14px; }
+  textarea, input[type=text] {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+    font-family: inherit; font-size: 14px;
+  }
+  footer.note { margin-top: 30px; font-size: 12px; color: var(--gray); }
+
+  /* ---- 관리자 화면 보조 ---- */
+  .progress-mini { width: 100%; height: 6px; background: var(--panel); border-radius: 999px; overflow: hidden; margin-top: 4px; }
+  .progress-mini > div { height: 100%; background: var(--green); border-radius: 999px; }
+  .copy-btn {
+    background: var(--panel); color: var(--navy); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .copy-btn:hover { opacity: 0.85; }
+  .lock-banner {
+    background: #FBEDED; border: 1px solid var(--red); color: #8A2E2E;
+    border-radius: 8px; padding: 10px 14px; font-size: 13px; font-weight: 600; margin-bottom: 14px;
+  }
+  textarea.reminder-box {
+    width: 100%; min-height: 90px; font-family: inherit; font-size: 13px; padding: 10px;
+    border: 1px solid var(--border); border-radius: 8px; margin-top: 8px;
+  }
+
+  /* ---- 평가 화면 전용 레이아웃 ---- */
+  body.eval-layout { background: #F7F8FA; }
+  .eval-shell { display: flex; min-height: 100vh; }
+  .eval-sidebar {
+    width: 280px; flex-shrink: 0; background: #fff; border-right: 1px solid var(--border);
+    padding: 24px 18px; display: flex; flex-direction: column; overflow-y: auto;
+  }
+  .eval-sidebar .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .eval-progress-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; font-size: 13px; }
+  .eval-progress-head .label { font-weight: 600; color: var(--navy); }
+  .eval-progress-head .count { font-size: 12px; color: var(--gray); }
+  .eval-progress-bar { width: 100%; height: 6px; background: var(--panel); border-radius: 999px; margin-bottom: 20px; overflow: hidden; }
+  .eval-progress-bar > div { height: 100%; background: var(--green); border-radius: 999px; }
+
+  .eval-cat { margin-bottom: 16px; }
+  .eval-cat-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; margin-bottom: 6px; }
+  .eval-cat-head .dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+  .eval-cat-head .label { font-size: 12.5px; font-weight: 800; }
+  .eval-cat-head .count { margin-left: auto; font-size: 11px; font-weight: 600; opacity: 0.75; }
+
+  .eval-item { border-radius: 8px; margin-bottom: 2px; border: 1.5px solid transparent; }
+  .eval-item a { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 16px; text-decoration: none; }
+  .eval-item.is-current { background: #EFF3FC; border-color: var(--blue); }
+  .eval-item .dot-icon {
+    width: 18px; height: 18px; border-radius: 999px; flex-shrink: 0; display: flex;
+    align-items: center; justify-content: center; font-size: 10px; font-weight: 700;
+    background: #F1F2F4; color: #9CA3AF; border: 1.5px solid var(--border);
+  }
+  .eval-item.is-done .dot-icon { background: var(--greenbg); color: var(--green); border-color: transparent; }
+  .eval-item.is-current .dot-icon { background: var(--blue); color: #fff; border-color: transparent; }
+  .eval-item .name { font-size: 13px; font-weight: 600; color: #9CA3AF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .eval-item.is-current .name { color: var(--navy); }
+  .eval-item.is-done .name { color: #374151; }
+
+  .eval-sidebar-legend { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border); font-size: 11px; color: #9CA3AF; line-height: 1.6; }
+
+  .eval-main { flex-grow: 1; padding: 32px 40px 60px; max-width: 880px; }
+  .eval-banner {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    border-radius: 10px; padding: 14px 20px; border: 1px solid; margin-bottom: 18px;
+  }
+  .eval-banner .left { display: flex; align-items: center; gap: 10px; }
+  .eval-banner .left .dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+  .eval-banner .left .title { font-size: 19px; font-weight: 700; }
+  .eval-banner .left .desc { font-size: 13px; color: #5A6B85; }
+  .eval-banner .step { font-size: 12px; font-weight: 600; background: #fff; border: 1px solid; padding: 4px 12px; border-radius: 999px; }
+
+  .eval-title { font-size: 22px; color: var(--navy); margin: 0 0 4px; }
+  .eval-target-meta { font-size: 13px; color: var(--gray); margin: 0 0 18px; }
+  .eval-target-meta .sep { margin: 0 6px; color: var(--border); }
+
+  .eval-na-card {
+    display: flex; align-items: center; gap: 14px; background: var(--amberbg); border: 1.5px dashed var(--amberborder);
+    border-radius: 10px; padding: 14px 18px; margin-bottom: 18px;
+  }
+  .eval-na-card .icon {
+    width: 38px; height: 38px; border-radius: 999px; background: #FCEACB; color: #8A5A11;
+    display: flex; align-items: center; justify-content: center; font-size: 19px; font-weight: 700; flex-shrink: 0;
+  }
+  .eval-na-card .text { flex-grow: 1; }
+  .eval-na-card .text .t1 { font-size: 14.5px; font-weight: 700; color: #7A5310; }
+  .eval-na-card .text .t2 { font-size: 12.5px; color: #9C7A3C; margin-top: 1px; }
+  .eval-na-card button {
+    background: var(--amber); color: #fff; border: none; border-radius: 8px; padding: 10px 18px;
+    font-size: 13.5px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  }
+
+  .eval-q-card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 8px; }
+  .eval-q-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .eval-q-text { font-size: 14px; font-weight: 600; flex-grow: 1; }
+  .eval-q-scale { display: flex; gap: 5px; flex-shrink: 0; }
+  .eval-scale-opt input, .eval-na-opt input { display: none; }
+  .eval-scale-opt label {
+    width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; cursor: pointer; background: #fff; border: 1.5px solid var(--border); color: #444;
+  }
+  .eval-scale-opt input:checked + label { background: var(--navy); border-color: var(--navy); color: #fff; }
+  .eval-na-opt label {
+    padding: 0 10px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; cursor: pointer; background: #fff; border: 1.5px solid var(--border); color: #444;
+  }
+  .eval-na-opt input:checked + label { background: var(--navy); border-color: var(--navy); color: #fff; }
+  .eval-q-toggle { background: none; border: none; color: var(--blue); font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 6px; white-space: nowrap; flex-shrink: 0; }
+  .eval-q-comment { display: none; margin-top: 10px; }
+  .eval-q-comment.is-open { display: block; }
+  .eval-q-comment input { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; }
+
+  .eval-overall { background: #fff; border: 2px solid var(--blue); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .eval-overall .head { font-size: 14px; font-weight: 700; color: var(--navy); margin-bottom: 4px; }
+  .eval-overall .head .opt { font-weight: 400; color: var(--gray); font-size: 12px; }
+  .eval-overall .hint { font-size: 12px; color: var(--gray); margin-bottom: 8px; }
+  .eval-overall textarea { width: 100%; height: 70px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; }
+
+  @media (max-width: 860px) {
+    .eval-shell { flex-direction: column; }
+    .eval-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+    .eval-main { padding: 20px 16px 40px; max-width: none; }
+  }
+</style>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+{% block body %}
+<div class="wrap">
+  <header class="top">
+    <div class="logo">
+      <img src="/static/genians_logo.png" alt="Genians"
+           onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+      <span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;">다</span>
+    </div>
+    <div>
+      <div class="brand-title">다면평가</div>
+      <div class="brand-sub">{{ brand_subtitle() }}</div>
+    </div>
+  </header>
+  {% block content %}{% endblock %}
+  <footer class="credit">{{ credit_line() }}</footer>
+</div>
+{% endblock %}
+</body>
+</html>

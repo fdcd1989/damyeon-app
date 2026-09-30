@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block body_class %}eval-layout{% endblock %}
+{% block body %}
+<div class="eval-shell">
+
+  <!-- 왼쪽: 전체 평가 진행도 사이드바 -->
+  <aside class="eval-sidebar">
+    <div class="brand">
+      <div class="logo">
+        <img src="/static/genians_logo.png" alt="Genians"
+             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;">다</span>
+      </div>
+      <div>
+        <div class="brand-title">다면평가</div>
+        <div class="brand-sub">내 평가 목록</div>
+      </div>
+    </div>
+
+    <div class="eval-progress-head">
+      <span class="label">전체 진행</span>
+      <span class="count">{{ done_count }} / {{ total_count }}</span>
+    </div>
+    <div class="eval-progress-bar"><div style="width:{{ progress_pct }}%;"></div></div>
+
+    {% for cat in sidebar_categories %}
+    <div class="eval-cat">
+      <div class="eval-cat-head" style="background:{{ cat.bg }};">
+        <span class="dot" style="background:{{ cat.color }};"></span>
+        <span class="label" style="color:{{ cat.color }};">{{ cat.label }}</span>
+        <span class="count" style="color:{{ cat.color }};">{{ cat.entries|length }}건</span>
+      </div>
+      {% for item in cat.entries %}
+      <div class="eval-item {% if item.status == 'current' %}is-current{% elif item.status == 'done' %}is-done{% endif %}">
+        <a href="/evaluate/{{ item.mapping_id }}">
+          <span class="dot-icon">{% if item.status == 'done' %}✓{% elif item.status == 'current' %}●{% endif %}</span>
+          <span class="name">{{ item.name }}</span>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
+    <div class="eval-sidebar-legend">
+      회색 = 대기 · 파란 테두리 = 지금 보는 중 · 초록 체크 = 완료
+      <div style="margin-top:10px;">{{ credit_line() }}</div>
+    </div>
+  </aside>
+
+  <!-- 오른쪽: 평가 작성 영역 -->
+  <main class="eval-main">
+    {% if is_locked %}
+    <div class="lock-banner">🔒 평가가 마감되어 더 이상 저장할 수 없습니다. 아래 내용은 조회만 가능합니다.</div>
+    {% endif %}
+    <div class="eval-banner" style="background:{{ relation_bg }};border-color:{{ relation_border }};">
+      <div class="left">
+        <span class="dot" style="background:{{ relation_color }};"></span>
+        <span class="title" style="color:{{ relation_color }};">{{ relation_label }}</span>
+        <span class="desc">— {{ relation_desc }}</span>
+      </div>
+      <span class="step" style="color:{{ relation_color }};border-color:{{ relation_color }};">전체 {{ total_count }}건 중 {{ current_index }}번째</span>
+    </div>
+
+    <h1 class="eval-title">{{ mapping.target_name }}님 평가</h1>
+    {% if target_info %}
+    <div class="eval-target-meta">
+      {{ target_info.org_group }}<span class="sep">/</span>{{ target_info.team }}<span class="sep">·</span>{{ target_info.job_family }}<span class="sep">·</span>{{ target_info.grade }}{% if target_info.role == '팀장' %}<span class="sep">·</span>팀장{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="eval-na-card">
+      <div class="icon">⌀</div>
+      <div class="text">
+        <div class="t1">이 사람과 업무 연관이 없으신가요?</div>
+        <div class="t2">버튼 한 번으로 아래 모든 문항을 N/A로 표시할 수 있습니다</div>
+      </div>
+      <button type="button" onclick="markAllNA()" {% if is_locked %}disabled{% endif %}>전체 N/A로 표시</button>
+    </div>
+
+    <form method="post" action="/evaluate/{{ mapping.id }}" id="eval-form">
+    <fieldset {% if is_locked %}disabled{% endif %} style="border:none;margin:0;padding:0;">
+      {% for q in questions %}
+      <div class="eval-q-card">
+        <div class="eval-q-row">
+          <div class="eval-q-text">{{ q.text }}</div>
+          <div class="eval-q-scale">
+            {% for s in range(1, scale_max+1) %}
+            <div class="eval-scale-opt">
+              <input type="radio" name="score_{{ q.index }}" id="q{{ q.index }}_s{{ s }}" value="{{ s }}"
+                     {% if q.answered and q.score == s %}checked{% endif %}>
+              <label for="q{{ q.index }}_s{{ s }}">{{ s }}</label>
+            </div>
+            {% endfor %}
+            <div class="eval-na-opt">
+              <input type="radio" name="score_{{ q.index }}" id="q{{ q.index }}_na" value="NA"
+                     {% if q.answered and q.score is none %}checked{% endif %}>
+              <label for="q{{ q.index }}_na">N/A</label>
+            </div>
+          </div>
+          <button type="button" class="eval-q-toggle" onclick="toggleComment({{ q.index }})" id="toggle_{{ q.index }}">
+            {% if q.comment %}코멘트 닫기 ▲{% else %}+ 코멘트 추가{% endif %}
+          </button>
+        </div>
+        <div class="eval-q-comment {% if q.comment %}is-open{% endif %}" id="comment_{{ q.index }}">
+          <input type="text" name="comment_{{ q.index }}" placeholder="이 문항에 대한 코멘트 (선택)" value="{{ q.comment }}">
+        </div>
+      </div>
+      {% endfor %}
+
+      <div class="eval-overall">
+        <div class="head">총평 <span class="opt">(선택)</span></div>
+        <div class="hint">전체적인 소감을 한 번에 남겨주세요. 특정 항목에 대해 더 남기고 싶으면 각 문항 옆 "코멘트 추가"를 눌러주세요.</div>
+        <textarea name="overall_comment" placeholder="예: 새로운 업무에도 빠르게 적응하고 팀 분위기를 잘 만들어줘서 함께 일하기 좋았습니다.">{{ overall_comment or "" }}</textarea>
+      </div>
+
+      <button class="btn" type="submit" style="width:100%;">저장하고 목록으로</button>
+    </fieldset>
+    </form>
+    <p style="margin-top:14px;"><a href="/dashboard">← 목록으로 돌아가기</a></p>
+  </main>
+</div>
+
+<script>
+function markAllNA() {
+  document.querySelectorAll('#eval-form input[type=radio][value="NA"]').forEach(function(el) {
+    el.checked = true;
+  });
+}
+function toggleComment(i) {
+  var box = document.getElementById('comment_' + i);
+  var btn = document.getElementById('toggle_' + i);
+  var open = box.classList.toggle('is-open');
+  btn.textContent = open ? '코멘트 닫기 ▲' : '+ 코멘트 추가';
+}
+</script>
+{% endblock %}

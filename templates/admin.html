@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>관리자</h1>
+<p class="desc">
+  <a href="/dashboard">← 내 대시보드로</a> &nbsp;|&nbsp;
+  <a href="/admin/questions">문항 관리</a> &nbsp;|&nbsp;
+  <a href="/admin/history">평가 이력 조회</a>
+  &nbsp;·&nbsp; <span style="color:var(--gray);">현재 회차: <b>{{ current_round_name }}</b></span>
+</p>
+{% if is_locked %}
+<div class="lock-banner">🔒 평가 마감일({{ deadline }})이 지나 더 이상 제출/수정이 불가능합니다.</div>
+{% endif %}
+
+<div class="stat-row">
+  <div class="stat-box">
+    <div class="stat-label">전체 진행률</div>
+    <div class="stat-value">{{ overall.pct }}%</div>
+    <div class="progress-mini"><div style="width:{{ overall.pct }}%;"></div></div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">완료 / 전체 평가건</div>
+    <div class="stat-value">{{ overall.done }} / {{ overall.total }}</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">미완료 인원</div>
+    <div class="stat-value">{{ incomplete|length }}명</div>
+  </div>
+</div>
+
+<h2>로스터 업로드</h2>
+<p class="desc">
+  필수 컬럼: 이름, 이메일, 그룹, 팀, 직군, 직급, 역할(팀원/팀장).<br>
+  선택 컬럼: 리더이메일(팀원만, 콤마로 복수 가능), <b>동료평가그룹</b>(값이 같은 사람끼리 팀 경계 없이 전부 동료평가로 묶임 — 교차평가/서브그룹용, 비워두면 기존처럼 같은 그룹+팀 전체가 자동으로 묶임).<br>
+  업로드하면 본인평가·동료평가·팀장평가·팀장간평가 매핑이 자동으로 생성되고, 이번 로스터에 더 이상 없는 매핑 중 응답이 없는 것은 자동 정리됩니다.
+</p>
+<form method="post" action="/admin/upload_roster" enctype="multipart/form-data" class="card">
+  <input type="file" name="file" accept=".xlsx,.csv" required style="margin-bottom:10px;">
+  <br>
+  <button class="btn" type="submit">업로드 및 매핑 생성</button>
+</form>
+
+{% if upload_result %}
+  {% if upload_result.ok %}
+  <div class="card" style="background:var(--greenbg);border-color:var(--green);">
+    ✅ 매핑 생성 완료 — {{ upload_result.summary }}
+  </div>
+  {% if upload_result.removed_stale %}
+  <div class="card">
+    🧹 이번 로스터 기준으로 더 이상 유효하지 않고 응답도 없었던 매핑 {{ upload_result.removed_stale|length }}건을 자동으로 정리했습니다.
+  </div>
+  {% endif %}
+  {% if upload_result.kept_with_responses %}
+  <div class="card" style="background:#FFF8EC;border-color:var(--amberborder);">
+    ⚠️ 아래 {{ upload_result.kept_with_responses|length }}건은 이번 로스터에 더 이상 없는 매핑이지만, 이미 제출된 응답이 있어 삭제하지 않고 그대로 두었습니다. 필요하면 직접 확인해주세요.<br>
+    {% for m in upload_result.kept_with_responses %}- {{ m.writer_name }} → {{ m.target_name }} ({{ m.relation_type }})<br>{% endfor %}
+  </div>
+  {% endif %}
+  {% else %}
+  <div class="card" style="background:#FBEDED;border-color:var(--red);">
+    ⚠️ 오류 발생<br>
+    {% for e in upload_result.errors %}- {{ e }}<br>{% endfor %}
+  </div>
+  {% endif %}
+{% endif %}
+
+<h2>부서별 진행률</h2>
+{% if org_stats %}
+<table>
+  <tr><th>그룹</th><th>팀</th><th>완료/전체</th><th>진행률</th></tr>
+  {% for o in org_stats %}
+  <tr>
+    <td>{{ o.org_group }}</td>
+    <td>{{ o.team }}</td>
+    <td>{{ o.done }} / {{ o.total }}</td>
+    <td style="width:140px;">
+      {{ o.pct }}%
+      <div class="progress-mini"><div style="width:{{ o.pct }}%;"></div></div>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="card">아직 업로드된 로스터가 없습니다.</div>
+{% endif %}
+
+<h2>평가자별 진행 현황</h2>
+{% if stats %}
+<table>
+  <tr><th>평가자</th><th>조직</th><th>완료/전체</th><th>진행률</th><th>상태</th></tr>
+  {% for s in stats %}
+  <tr>
+    <td>{{ s.writer_name }}</td>
+    <td>{{ s.org_group }}</td>
+    <td>{{ s.done_targets }} / {{ s.total_targets }}</td>
+    <td style="width:120px;">
+      {% set pct = ((s.done_targets / s.total_targets * 100) | round(0) | int) if s.total_targets else 0 %}
+      {{ pct }}%
+      <div class="progress-mini"><div style="width:{{ pct }}%;"></div></div>
+    </td>
+    <td>{% if s.complete %}<span class="badge badge-done">완료</span>{% else %}<span class="badge badge-pending">진행중</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="card">아직 업로드된 로스터가 없습니다.</div>
+{% endif %}
+
+<h2>미완료자 리마인드</h2>
+{% if incomplete %}
+<div class="card">
+  <div class="desc" style="margin-bottom:0;">
+    아래 내용을 복사해서 슬랙 DM/채널에 직접 붙여넣어 리마인드하세요. (자동 발송 기능은 추후 추가 예정)
+  </div>
+  <textarea id="reminder-text" class="reminder-box" readonly>다면평가 미완료 안내드립니다. 아래 분들은 아직 평가가 남아있어요 🙏
+접속 링크: {{ site_url }}/login
+
+{% for w in incomplete %}- {{ w.name }} ({{ w.email }}) — {{ w.done }}/{{ w.total }}건 완료, {{ w.remaining }}건 남음
+{% endfor %}</textarea>
+  <button type="button" class="copy-btn" style="margin-top:8px;" onclick="copyReminder()">📋 복사하기</button>
+  <span id="copy-status" style="font-size:12px;color:var(--green);margin-left:8px;"></span>
+</div>
+{% else %}
+<div class="card" style="background:var(--greenbg);border-color:var(--green);">🎉 전원 완료했습니다. 미완료자가 없어요.</div>
+{% endif %}
+
+<h2>평가 마감일</h2>
+<p class="desc">마감일이 지나면 평가자는 더 이상 제출/수정할 수 없고 조회만 가능합니다. 비워두면 마감 없이 계속 열려있습니다.</p>
+<form method="post" action="/admin/deadline" class="card" style="display:flex;gap:10px;align-items:center;">
+  <input type="date" name="deadline" value="{{ deadline or '' }}" style="width:auto;">
+  <button class="btn" type="submit">저장</button>
+  {% if deadline %}<span style="font-size:13px;color:var(--gray);">현재 마감일: {{ deadline }}</span>{% endif %}
+</form>
+
+<h2>화면 표시 문구</h2>
+<p class="desc">헤더 부제(회차/팀 문구)와 하단 크레딧 문구를 직접 바꿀 수 있습니다. 회차가 바뀌어도 코드를 고칠 필요 없이 여기서 수정하세요.</p>
+<form method="post" action="/admin/branding" class="card">
+  <div style="margin-bottom:10px;">
+    <label style="font-size:13px;font-weight:600;color:var(--navy);">헤더 부제</label>
+    <input type="text" name="brand_subtitle" value="{{ brand_subtitle_value }}" placeholder="예: 2026년 하반기 · Genians 인사총무팀">
+  </div>
+  <div>
+    <label style="font-size:13px;font-weight:600;color:var(--navy);">하단 크레딧 문구</label>
+    <input type="text" name="credit_line" value="{{ credit_line_value }}" placeholder="예: 🔧 In-house Build · Genians 인사총무팀">
+  </div>
+  <button class="btn" type="submit" style="margin-top:10px;">저장</button>
+</form>
+
+<h2>결과 내보내기 / 백업</h2>
+<p class="desc">리포트 생성 프로그램(app.py)에 바로 업로드할 수 있는 엑셀 형식입니다(현재 회차 데이터만). 백업은 원본 DB 파일을 그대로 내려받습니다(클라우드 정식 배포 전까지의 수동 백업용).</p>
+<a class="btn" href="/admin/export">엑셀 다운로드</a>
+<a class="btn btn-secondary" href="/admin/backup" style="margin-left:8px;">DB 백업 다운로드</a>
+
+<h2>최근 관리자 활동</h2>
+{% if access_logs %}
+<table>
+  <tr><th>시각</th><th>관리자</th><th>작업</th><th>비고</th></tr>
+  {% for log in access_logs %}
+  <tr>
+    <td>{{ log.created_at }}</td>
+    <td>{{ log.admin_email }}</td>
+    <td>{{ log.action }}</td>
+    <td style="color:var(--gray);">{{ log.detail or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="card">아직 기록된 활동이 없습니다.</div>
+{% endif %}
+
+<h2>새 회차 시작</h2>
+<p class="desc">
+  새 회차를 시작하면 지금까지의 인원·매핑·응답·총평은 <b>삭제되지 않고 그대로 이력으로 보관</b>되며
+  (평가 이력 조회에서 계속 확인 가능), 새 회차는 로스터 업로드 전의 완전히 빈 상태로 시작됩니다.
+  평가 마감일은 새 회차 시작과 함께 초기화됩니다.
+</p>
+<form method="post" action="/admin/new_round" class="card" style="display:flex;gap:10px;align-items:center;"
+      onsubmit="return confirm('새 회차를 시작합니다. 현재 데이터는 이력으로 보관되고, 다시 로그인해야 합니다. 계속할까요?');">
+  <input type="text" name="round_name" placeholder="예: 2026년 하반기" required style="flex-grow:1;">
+  <button class="btn" type="submit" style="background:var(--red);">새 회차 시작</button>
+</form>
+
+<script>
+function copyReminder() {
+  var box = document.getElementById('reminder-text');
+  box.select();
+  box.setSelectionRange(0, 999999);
+  var status = document.getElementById('copy-status');
+  function shown() {
+    status.textContent = '복사됨!';
+    setTimeout(function(){ status.textContent = ''; }, 2000);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(box.value).then(shown).catch(function() {
+      document.execCommand('copy'); shown();
+    });
+  } else {
+    document.execCommand('copy'); shown();
+  }
+}
+</script>
+{% endblock %}

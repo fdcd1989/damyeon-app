@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>평가 이력 조회</h1>
+<p class="desc"><a href="/admin">← 관리자 화면으로</a></p>
+<p class="desc">
+  이름 또는 이메일로 검색하면, 그 사람이 지금까지의 모든 회차에서 <b>받은</b> 평가 점수 평균과 코멘트를
+  회차별로 모아서 보여줍니다. 회차를 시작할 때 데이터를 지우지 않고 보관해두기 때문에 가능한 기능입니다.
+</p>
+
+<form method="get" action="/admin/history" class="card" style="display:flex;gap:10px;">
+  <input type="text" name="q" list="people-list" value="{{ query or '' }}" placeholder="이름 또는 이메일로 검색" style="flex-grow:1;">
+  <datalist id="people-list">
+    {% for p in people %}<option value="{{ p.name }}">{{ p.email }}</option>{% endfor %}
+  </datalist>
+  <button class="btn" type="submit">조회</button>
+</form>
+
+{% if matches %}
+<div class="card" style="background:#FFF8EC;border-color:var(--amberborder);">
+  동명이인이 {{ matches|length }}명 있습니다. 이메일로 다시 검색해주세요:<br>
+  {% for m in matches %}<a href="/admin/history?q={{ m.email }}">{{ m.name }} ({{ m.email }})</a><br>{% endfor %}
+</div>
+{% endif %}
+
+{% if query and not report and not matches %}
+<div class="card">'{{ query }}'에 해당하는 평가 기록을 찾을 수 없습니다.</div>
+{% endif %}
+
+{% if report %}
+{% for r in report %}
+<div class="card">
+  <div class="card-flex" style="margin-bottom:8px;align-items:flex-start;">
+    <div>
+      <div style="font-weight:700;color:var(--navy);font-size:15px;">{{ r.round_name }}</div>
+      <div style="font-size:12px;color:var(--gray);margin-top:2px;">
+        {{ r.employee_snapshot.org_group }} / {{ r.employee_snapshot.team }} · {{ r.employee_snapshot.role }}
+      </div>
+    </div>
+    {% if r.overall_avg is not none %}
+    <div style="text-align:right;">
+      <div style="font-size:22px;font-weight:700;color:var(--navy);">{{ r.overall_avg }}점</div>
+      <div style="font-size:11px;color:var(--gray);">{{ r.overall_response_count }}개 응답 평균</div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if not r.overall_avg and not r.overall_comments %}
+  <div class="desc" style="margin:0;">아직 집계할 응답이 없습니다.</div>
+  {% endif %}
+
+  {% for rel in r.by_relation %}
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+    <div style="font-weight:600;font-size:13px;">
+      {{ rel.relation_type }}
+      {% if rel.avg is not none %}<span style="color:var(--blue);">— 평균 {{ rel.avg }}점</span> <span style="color:var(--gray);font-weight:400;">({{ rel.count }}개 응답)</span>{% endif %}
+    </div>
+    {% for qc in rel.question_comments %}
+    <div style="font-size:12.5px;color:var(--gray);margin-top:4px;">💬 ({{ qc.question }}) {{ qc.comment }}</div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  {% if r.overall_comments %}
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+    <div style="font-weight:600;font-size:13px;">총평</div>
+    {% for c in r.overall_comments %}
+    <div style="font-size:12.5px;color:#444;margin-top:4px;">"{{ c.text }}" <span style="color:var(--gray);">— {{ c.relation_type }}</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}
