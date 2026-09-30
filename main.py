@@ -408,6 +408,51 @@ async def admin_upload_roster(request: Request, file: UploadFile = File(...)):
     })
 
 
+@app.get("/admin/roster_template")
+def admin_roster_template(request: Request):
+    """로스터 업로드용 엑셀 양식을 내려받는다. 필수/선택 컬럼과 예시 2~3행,
+    그리고 컬럼 설명을 담은 별도 시트를 함께 제공한다."""
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+
+    columns = ["이름", "이메일", "그룹", "팀", "직군", "직급", "역할", "리더이메일", "동료평가그룹"]
+    sample_rows = [
+        ["김팀장", "kim.leader@genians.co.kr", "경영지원본부", "인사총무팀", "경영지원", "팀장", "팀장", "", ""],
+        ["이사원", "lee.staff@genians.co.kr", "경영지원본부", "인사총무팀", "경영지원", "사원", "팀원", "kim.leader@genians.co.kr", ""],
+        ["박대리", "park.staff@genians.co.kr", "경영지원본부", "인사총무팀", "경영지원", "대리", "팀원", "kim.leader@genians.co.kr", ""],
+    ]
+    sample_df = pd.DataFrame(sample_rows, columns=columns)
+
+    guide_rows = [
+        ["이름", "필수", "평가 대상/작성자로 표시될 이름"],
+        ["이메일", "필수", "Slack 로그인 이메일과 반드시 일치해야 함 (조직 내 고유값)"],
+        ["그룹", "필수", "상위 조직 단위 (예: 본부/실)"],
+        ["팀", "필수", "하위 조직 단위 (예: 팀)"],
+        ["직군", "필수", "직군 구분 (예: 경영지원, 개발 등)"],
+        ["직급", "필수", "직급/호칭 (예: 사원, 대리, 팀장 등)"],
+        ["역할", "필수", "'팀원' 또는 '팀장' 중 하나만 입력"],
+        ["리더이메일", "선택 (팀원만)", "본인의 팀장 이메일. 복수면 콤마(,)로 구분. 비우면 팀장평가 매핑이 생성되지 않음"],
+        ["동료평가그룹", "선택", "값이 같은 사람끼리 팀 경계 없이 전부 동료평가로 묶임. 비워두면 같은 '그룹+팀'끼리 자동으로 묶임"],
+    ]
+    guide_df = pd.DataFrame(guide_rows, columns=["컬럼명", "필수여부", "설명"])
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        sample_df.to_excel(writer, index=False, sheet_name="로스터")
+        guide_df.to_excel(writer, index=False, sheet_name="컬럼설명")
+    buf.seek(0)
+
+    from urllib.parse import quote
+    korean_name = "로스터_업로드_양식.xlsx"
+    encoded_name = quote(korean_name)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=roster_template.xlsx; filename*=UTF-8''{encoded_name}"},
+    )
+
+
 @app.get("/admin/export")
 def admin_export(request: Request):
     user = current_user(request)
