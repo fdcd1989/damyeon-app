@@ -1,0 +1,15 @@
+{# 점검 결과 공용 조각: findings(list), people(email->표시명), link(상세 링크 여부) #}
+{% for g in findings %}
+<details class="card" style="padding:10px 14px;{% if g.level == 'warn' %}border-color:var(--amberborder);{% endif %}" {% if g.level != 'info' and g.count <= 3 %}open{% endif %}>
+  <summary style="cursor:pointer;font-weight:700;">
+    <span class="badge {% if g.level == 'info' %}badge-done{% else %}badge-pending{% endif %}">{{ g.level_label }}</span>
+    {{ g.title }} <span style="color:var(--gray);font-weight:400;">· {{ g.count }}건</span>
+  </summary>
+  <div style="font-size:12.5px;color:var(--gray);margin:8px 0;">{{ g.hint }}</div>
+  <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.7;">
+    {% for it in g['items'] %}
+    <li>{% if link and it.emails %}<a href="/admin/mappings?p={{ it.emails[0]|urlencode }}">{{ it.text }}</a>{% else %}{{ it.text }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+</details>
+{% endfor %}

@@ -3,13 +3,15 @@
 인증: Slack 관련 환경변수(SLACK_CLIENT_ID 등)가 채워져 있으면 실제 Slack 로그인(OIDC), 비어있으면 더미(이름 선택) 로그인.
 """
 import os
+from collections import defaultdict
 import io
 import time
+import threading
 import secrets
 import datetime
 import requests
 from fastapi import FastAPI, Request, Form, UploadFile, File
-from fastapi.responses import RedirectResponse, StreamingResponse, HTMLResponse, FileResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
@@ -19,6 +21,7 @@ import pandas as pd
 import db
 import roster
 import purge
+import audit
 from questions import RELATION_LABEL, RELATION_DESC
 
 # Slack Client Secret 같은 값은 코드/저장소에 절대 두지 않고, 배포 플랫폼의 환경변수로만 주입한다
@@ -245,7 +248,7 @@ def dashboard(request: Request):
 
 
 @app.get("/evaluate/{mapping_id}", response_class=HTMLResponse)
-def evaluate_page(request: Request, mapping_id: int):
+def evaluate_page(request: Request, mapping_id: int, saved: int = 0):
     user = current_user(request)
     if not user:
         return RedirectResponse("/login")
@@ -279,9 +282,12 @@ def evaluate_page(request: Request, mapping_id: int):
             status = "current"
         elif m["done"]:
             status = "done"
+        elif m["answered"] > 0:
+            status = "partial"  # 일부 문항만 작성한 상태 ('작성 중')
         else:
             status = "pending"
-        grouped[cat].append({"mapping_id": m["mapping_id"], "name": m["target_name"], "status": status})
+        grouped[cat].append({"mapping_id": m["mapping_id"], "name": m["target_name"],
+                             "status": status, "done": m["done"]})
 
     sidebar_categories = [
         {
@@ -316,19 +322,18 @@ def evaluate_page(request: Request, mapping_id: int):
         "current_index": current_index,
         "overall_comment": mapping.get("overall_comment"),
         "is_locked": deadline_passed(),
+        "saved_flash": bool(saved),
     })
 
 
-@app.post("/evaluate/{mapping_id}")
-async def evaluate_submit(request: Request, mapping_id: int):
-    user = current_user(request)
-    if not user:
-        return RedirectResponse("/login")
+async def _save_evaluation(request: Request, user, mapping_id: int):
+    """평가 저장 공통 로직. (ok, http_status, message, info) 반환.
+    선택하지 않은 문항은 저장하지 않고(미응답으로 유지), 점수 없이 입력된 코멘트는 개수만 세어 알려준다."""
     if deadline_passed():
-        return HTMLResponse("평가가 마감되었습니다. 수정이 필요하면 담당자에게 문의해주세요.", status_code=403)
+        return False, 403, "평가가 마감되어 저장할 수 없습니다. 수정이 필요하면 담당자에게 문의해주세요.", None
     mapping = db.get_mapping(mapping_id)
     if not mapping or mapping["writer_id"] != user["id"]:
-        return HTMLResponse("이 평가에 접근할 권한이 없습니다.", status_code=403)
+        return False, 403, "이 평가에 접근할 권한이 없습니다.", None
 
     questionnaire = db.relation_questionnaire()
     active_questions = db.get_active_questions()
@@ -336,9 +341,13 @@ async def evaluate_submit(request: Request, mapping_id: int):
 
     form = await request.form()
     questions = questionnaire.get(mapping["relation_type"], [])
+    skipped_comments = 0
     for i, q in enumerate(questions):
         raw = form.get(f"score_{i}")
+        comment = (form.get(f"comment_{i}") or "").strip() or None
         if raw is None or raw == "":
+            if comment:
+                skipped_comments += 1  # 점수를 고르지 않으면 코멘트도 저장되지 않음 -> 사용자에게 알림
             continue  # 선택 안 한 문항은 저장하지 않음 (미응답으로 남김)
         if raw == "NA":
             score = None
@@ -349,13 +358,51 @@ async def evaluate_submit(request: Request, mapping_id: int):
                 continue  # 폼 조작 등 비정상 입력은 조용히 무시
             if score < 1 or score > scale_max:
                 continue  # 척도 범위를 벗어난 값도 무시
-        comment = form.get(f"comment_{i}", "").strip() or None
         db.save_response(mapping_id, i, q, score, comment)
 
     overall_comment = (form.get("overall_comment") or "").strip() or None
     db.save_overall_comment(mapping_id, overall_comment)
 
-    return RedirectResponse("/dashboard", status_code=303)
+    answered = len(db.get_existing_responses(mapping_id))
+    total = len(questions)
+    mine = db.get_my_mappings(user["id"])
+    done_count = sum(1 for m in mine if m["done"])
+    total_count = len(mine)
+    kst = datetime.timezone(datetime.timedelta(hours=9))
+    info = {
+        "name": mapping["target_name"],
+        "answered": answered, "total": total, "complete": answered >= total,
+        "skipped_comments": skipped_comments,
+        "done_count": done_count, "total_count": total_count,
+        "progress_pct": round(done_count / total_count * 100) if total_count else 0,
+        "saved_at": datetime.datetime.now(kst).strftime("%H:%M:%S"),
+    }
+    return True, 200, "저장되었습니다.", info
+
+
+@app.post("/evaluate/{mapping_id}")
+async def evaluate_submit(request: Request, mapping_id: int):
+    """자바스크립트가 꺼진 환경 등을 위한 일반 폼 제출. 저장 후 같은 사람의 평가 화면에 머문다."""
+    user = current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+    ok, status, msg, _ = await _save_evaluation(request, user, mapping_id)
+    if not ok:
+        return HTMLResponse(msg, status_code=status)
+    return RedirectResponse(f"/evaluate/{mapping_id}?saved=1", status_code=303)
+
+
+@app.post("/evaluate/{mapping_id}/autosave")
+async def evaluate_autosave(request: Request, mapping_id: int):
+    """화면 이동 없이 저장하는 JSON 엔드포인트 ('저장' 버튼, 다른 사람/목록으로 이동 시 자동 저장에서 사용)."""
+    user = current_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "message": "로그인이 만료되었습니다. 이 화면을 닫지 말고 새 탭에서 다시 로그인한 뒤 저장해주세요."},
+                            status_code=401)
+    ok, status, msg, info = await _save_evaluation(request, user, mapping_id)
+    if not ok:
+        return JSONResponse({"ok": False, "message": msg}, status_code=status)
+    return JSONResponse({"ok": True, "message": msg, **info})
 
 
 # ---------------------------------------------------------------
@@ -387,29 +434,196 @@ def admin_page(request: Request):
     return templates.TemplateResponse(request, "admin.html", _admin_context(request))
 
 
+# --- 로스터 업로드: 미리보기 -> 확인 후 반영 -------------------------------
+# 업로드 파일(개인정보 포함)은 디스크에 저장하지 않고 메모리에만 30분간 보관한다.
+_PENDING_ROSTERS = {}
+_PENDING_LOCK = threading.Lock()
+_PENDING_TTL = 30 * 60
+
+
+def _pending_put(admin_email, filename, content, signature):
+    now = time.time()
+    token = secrets.token_urlsafe(24)
+    with _PENDING_LOCK:
+        for t in [t for t, v in _PENDING_ROSTERS.items() if now - v["ts"] > _PENDING_TTL or v["admin"] == admin_email]:
+            _PENDING_ROSTERS.pop(t, None)  # 만료분 + 같은 관리자의 이전 미리보기는 폐기
+        _PENDING_ROSTERS[token] = {"admin": admin_email, "filename": filename, "content": content,
+                                   "signature": signature, "ts": now}
+    return token
+
+
+def _pending_get(token, admin_email):
+    with _PENDING_LOCK:
+        v = _PENDING_ROSTERS.get(token)
+        if not v or v["admin"] != admin_email or time.time() - v["ts"] > _PENDING_TTL:
+            return None
+        return v
+
+
+def _pending_drop(token):
+    with _PENDING_LOCK:
+        _PENDING_ROSTERS.pop(token, None)
+
+
+def _read_roster_file(filename, content):
+    """엑셀/CSV를 문자열로 읽는다(숫자처럼 보이는 값이 변형되지 않도록). CSV는 UTF-8, 안 되면 CP949(엑셀 한글 CSV)로 시도."""
+    if (filename or "").lower().endswith(".csv"):
+        for enc in ("utf-8-sig", "cp949"):
+            try:
+                return pd.read_csv(io.BytesIO(content), dtype=str, encoding=enc)
+            except UnicodeDecodeError:
+                continue
+        raise ValueError("CSV 인코딩을 인식하지 못했습니다. 엑셀(.xlsx)로 저장해서 올려주세요.")
+    return pd.read_excel(io.BytesIO(content), dtype=str)
+
+
+def _preview_context(request, plan, filename, token=None, error_msgs=None):
+    ctx = {"filename": filename, "token": token, "errors": error_msgs or [], "plan": None}
+    if not plan or not plan.get("ok"):
+        if plan:
+            ctx["errors"] = plan["errors"]
+            ctx["notes"] = plan.get("notes", [])
+        return ctx
+    diff = audit.diff_plan_with_db(plan)
+    result = audit.analyze(plan["employees"], plan["intended"])
+    notes = plan.get("notes", [])
+    n_warn = result["n_warn"] + sum(1 for n in notes if n["level"] == "warn")
+    ctx.update({
+        "plan": plan, "diff": diff, "audit": result, "notes": notes, "n_warn": n_warn,
+        "needs_ack": bool(n_warn or diff["large_change"] or diff["n_keep"]),
+        "people": {e: audit._nm(plan["employees"], e) for e in plan["employees"]},
+    })
+    return ctx
+
+
 @app.post("/admin/upload_roster")
 async def admin_upload_roster(request: Request, file: UploadFile = File(...)):
+    """1단계: 파일을 검증하고 '반영하면 무엇이 바뀌는지'만 보여준다. 이 단계에서는 DB를 바꾸지 않는다."""
     user = current_user(request)
     if not user or not user.get("is_admin"):
         return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
-
     try:
         content = await file.read()
-        if file.filename.endswith(".csv"):
-            roster_df = pd.read_csv(io.BytesIO(content))
-        else:
-            roster_df = pd.read_excel(io.BytesIO(content))
-        result = roster.generate_mappings_from_roster(roster_df)
-        db.log_access(user["email"], "로스터 업로드", detail=str(result.get("summary")))
+        roster_df = _read_roster_file(file.filename, content)
+        plan = roster.build_plan(roster_df)
+        ctx = _preview_context(request, plan, file.filename)
+        if plan["ok"]:
+            ctx["token"] = _pending_put(user["email"], file.filename, content, ctx["diff"]["signature"])
+            db.log_access(user["email"], "로스터 미리보기", detail=f"인원 {len(plan['employees'])}명 / 반영 전 확인")
     except Exception as e:
-        # 잘못된 형식의 파일이 올라와도 서버 내부 오류(스택트레이스)를 그대로
-        # 노출하지 않고, 관리자 화면 안에서 원인만 안내한다.
-        result = {"ok": False, "errors": [f"파일을 읽는 중 오류가 발생했습니다: {e}"]}
+        # 잘못된 형식의 파일이 올라와도 스택트레이스를 노출하지 않고 원인만 안내한다.
+        ctx = {"filename": getattr(file, "filename", ""), "token": None, "plan": None,
+               "errors": [f"파일을 읽는 중 오류가 발생했습니다: {e}"], "notes": []}
+    return templates.TemplateResponse(request, "roster_preview.html", ctx)
 
-    return templates.TemplateResponse(request, "admin.html", {
-        **_admin_context(request),
-        "upload_result": result,
-    })
+
+@app.post("/admin/upload_roster/apply")
+async def admin_upload_roster_apply(request: Request):
+    """2단계: 미리보기에서 확인한 내용을 실제로 반영한다."""
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    form = await request.form()
+    token = form.get("token") or ""
+    pend = _pending_get(token, user["email"])
+    if not pend:
+        result = {"ok": False, "errors": ["미리보기가 만료되었거나 찾을 수 없습니다(30분 경과·서버 재시작 등). 파일을 다시 업로드해주세요."]}
+    else:
+        try:
+            plan = roster.build_plan(_read_roster_file(pend["filename"], pend["content"]))
+            ctx = _preview_context(request, plan, pend["filename"], token=token)
+            if not plan["ok"]:
+                result = {"ok": False, "errors": plan["errors"]}
+            elif ctx["diff"]["signature"] != pend["signature"]:
+                result = {"ok": False, "errors": ["미리보기 이후 데이터가 바뀌었습니다(다른 응답 제출 등). 변경 내용이 달라졌을 수 있어 "
+                                                   "반영하지 않았습니다. 파일을 다시 업로드해 미리보기를 확인해주세요."]}
+                _pending_drop(token)
+            elif ctx["needs_ack"] and form.get("ack") != "1":
+                return templates.TemplateResponse(request, "roster_preview.html",
+                                                  {**ctx, "errors": ["경고 확인 체크박스를 선택해야 반영할 수 있습니다."]})
+            else:
+                applied = roster.apply_plan(plan)
+                result = {"ok": True, "errors": [], "summary": plan["summary"], "peer_group_stats": plan["peer_group_stats"],
+                          **applied}
+                db.log_access(user["email"], "로스터 반영", detail=str(plan["summary"]) +
+                              f" / 추가 {ctx['diff']['n_add']}건·삭제 {ctx['diff']['n_remove']}건·응답으로 유지 {ctx['diff']['n_keep']}건")
+                _pending_drop(token)
+        except Exception as e:
+            result = {"ok": False, "errors": [f"반영 중 오류가 발생했습니다. 데이터는 변경되지 않았습니다: {e}"]}
+    return templates.TemplateResponse(request, "admin.html", {**_admin_context(request), "upload_result": result})
+
+
+@app.post("/admin/upload_roster/cancel")
+async def admin_upload_roster_cancel(request: Request):
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    form = await request.form()
+    pend = _pending_get(form.get("token") or "", user["email"])
+    if pend:
+        _pending_drop(form.get("token"))
+    return RedirectResponse("/admin", status_code=303)
+
+
+# --- 매핑 점검 화면 --------------------------------------------------------
+@app.get("/admin/mappings", response_class=HTMLResponse)
+def admin_mappings(request: Request, q: str = "", p: str = ""):
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    employees, mappings, keys = audit.build_db_state()
+    ctx = {"empty": not employees, "q": q.strip(), "selected": None, "matches": []}
+    if employees:
+        result = audit.analyze(employees, mappings)
+        resp = {(m["target_email"], m["writer_email"], m["relation_type"]): m["response_count"] for m in keys}
+        ctx.update({"audit": result, "people": {e: audit._nm(employees, e) for e in employees},
+                    "rows": sorted(result["per_person"].values(), key=lambda r: (r["org_group"], r["team"], r["role"] != "팀장", r["name"]))})
+        needle = q.strip().lower()
+        if needle:
+            ctx["matches"] = [r for r in ctx["rows"] if needle in r["name"].lower() or needle in r["email"].lower()]
+        if p and p in employees:
+            out, inc = defaultdict(list), defaultdict(list)
+            for (t, w, r), cnt in sorted(resp.items(), key=lambda kv: (employees.get(kv[0][0], {}).get("name", ""), kv[0][2])):
+                if w == p:
+                    out[r].append({"email": t, "label": audit._nm(employees, t), "grade": employees[t]["grade"], "responded": cnt > 0})
+                if t == p:
+                    inc[r].append({"email": w, "label": audit._nm(employees, w), "grade": employees[w]["grade"]})
+            ctx["selected"] = {"info": result["per_person"][p], "label": audit._nm(employees, p),
+                               "out": [(r, out.get(r, [])) for r in audit.RELATIONS if out.get(r)],
+                               "inc": [(r, inc.get(r, [])) for r in audit.RELATIONS if inc.get(r)],
+                               "flags": [g for g in result["findings"] if any(p in it["emails"] for it in g["items"])]}
+    return templates.TemplateResponse(request, "mappings.html", ctx)
+
+
+@app.get("/admin/mappings/export")
+def admin_mappings_export(request: Request):
+    """매핑 전체 + 인원별 요약 + 점검 결과를 엑셀로 내려받는다 (팀장·HR이 함께 눈으로 검토하는 용도). 응답 내용은 포함하지 않는다."""
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    employees, mappings, keys = audit.build_db_state()
+    result = audit.analyze(employees, mappings)
+    rows = []
+    for m in sorted(keys, key=lambda m: (m["writer_name"], m["relation_type"], m["target_name"])):
+        w, t = employees.get(m["writer_email"], {}), employees.get(m["target_email"], {})
+        rows.append({"작성자": m["writer_name"], "작성자 이메일": m["writer_email"], "작성자 그룹": w.get("org_group", ""),
+                     "작성자 팀": w.get("team", ""), "관계": m["relation_type"], "대상": m["target_name"],
+                     "대상 이메일": m["target_email"], "대상 그룹": t.get("org_group", ""), "대상 팀": t.get("team", ""),
+                     "응답 여부": "응답 있음" if m["response_count"] else "미응답"})
+    summary = [{"이름": r["name"], "이메일": r["email"], "그룹": r["org_group"], "팀": r["team"], "직급": r["grade"], "역할": r["role"],
+                "리더": ", ".join(r["leaders"]), "평가할 동료 수": r["peers"], "받는 팀장평가 수": r["raters"],
+                "팀장간평가 수": r["lpeers"], "점검 경고 수": r["flags"]} for r in result["per_person"].values()]
+    checks = [{"구분": g["level_label"], "항목": g["title"], "내용": it["text"]} for g in result["findings"] for it in g["items"]]
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+        pd.DataFrame(rows).to_excel(xw, sheet_name="매핑전체", index=False)
+        pd.DataFrame(summary).to_excel(xw, sheet_name="인원별요약", index=False)
+        pd.DataFrame(checks or [{"구분": "", "항목": "점검 결과 없음", "내용": ""}]).to_excel(xw, sheet_name="점검결과", index=False)
+    buf.seek(0)
+    db.log_access(user["email"], "매핑 점검 엑셀 다운로드", detail=f"매핑 {len(rows)}건")
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f"attachment; filename=mapping_check_{ts}.xlsx"})
 
 
 @app.get("/admin/roster_template")

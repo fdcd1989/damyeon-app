@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>로스터 업로드 미리보기</h1>
+<p class="desc"><a href="/admin">← 관리자로</a> &nbsp;·&nbsp; 파일: <b>{{ filename }}</b></p>
+
+{% if errors %}
+<div class="card" style="background:#FBEDED;border-color:var(--red);">
+  <b>❌ 오류가 있어 반영할 수 없습니다. 아래를 고쳐서 다시 올려주세요.</b> (아직 아무것도 반영되지 않았습니다)
+  <ul style="margin:8px 0 0;padding-left:18px;font-size:13px;line-height:1.7;">
+    {% for e in errors[:100] %}<li>{{ e }}</li>{% endfor %}
+    {% if errors|length > 100 %}<li>… 외 {{ errors|length - 100 }}건</li>{% endif %}
+  </ul>
+</div>
+<a class="btn btn-secondary" href="/admin">돌아가기</a>
+{% else %}
+
+<div class="card" style="background:var(--amberbg);border-color:var(--amberborder);">
+  <b>아직 반영되지 않았습니다.</b> 아래 내용을 확인한 뒤 맨 아래 <b>[이 내용으로 반영]</b>을 눌러야 적용됩니다. (30분 안에 반영하지 않으면 자동 폐기)
+</div>
+
+<h2>1. 반영하면 이렇게 됩니다</h2>
+<div class="stat-row">
+  <div class="stat-box"><div class="stat-label">인원</div><div class="stat-value">{{ plan.summary['인원수'] }}명</div></div>
+  <div class="stat-box"><div class="stat-label">매핑 합계</div><div class="stat-value">{{ audit.stats.total }}건</div></div>
+  <div class="stat-box"><div class="stat-label">확인 필요</div><div class="stat-value" style="{% if n_warn %}color:var(--amber);{% endif %}">{{ n_warn }}건</div></div>
+</div>
+<div class="card" style="font-size:13px;line-height:1.8;">
+  {% for r, n in audit.stats.by_relation.items() %}{{ r }} <b>{{ n }}</b>건{% if not loop.last %} · {% endif %}{% endfor %}
+</div>
+
+<h2>2. 지금 상태와 비교</h2>
+{% if diff.first_upload %}
+<div class="card">최초 업로드입니다. 기존 데이터가 없어 비교할 내용이 없습니다. 신규 인원 {{ diff.new_people|length }}명, 신규 매핑 {{ diff.n_add }}건이 만들어집니다.</div>
+{% elif diff.no_change %}
+<div class="card" style="background:var(--greenbg);border-color:var(--green);">✅ 현재 상태와 <b>동일</b>합니다. 반영해도 바뀌는 것이 없습니다.</div>
+{% else %}
+{% if diff.large_change %}
+<div class="card" style="background:#FBEDED;border-color:var(--red);">
+  ⚠ <b>변동이 큽니다.</b> 기존 매핑 {{ diff.existing_total }}건 중 약 {{ (diff.change_ratio * 100)|round|int }}%가 추가·삭제됩니다.
+  한두 명만 고쳤다고 생각했다면 파일이 잘못 올라갔거나 열/그룹 값이 바뀐 것은 아닌지 확인하세요.
+</div>
+{% endif %}
+<div class="stat-row">
+  <div class="stat-box"><div class="stat-label">새로 추가될 매핑</div><div class="stat-value">+{{ diff.n_add }}</div></div>
+  <div class="stat-box"><div class="stat-label">삭제될 매핑 (응답 없음)</div><div class="stat-value">−{{ diff.n_remove }}</div></div>
+  <div class="stat-box"><div class="stat-label">응답이 있어 남을 매핑</div><div class="stat-value" style="{% if diff.n_keep %}color:var(--amber);{% endif %}">{{ diff.n_keep }}</div></div>
+</div>
+
+<div class="card" style="font-size:13px;">
+  <b>관계별 변동</b>
+  <table style="margin-top:6px;">
+    <tr><th>관계</th><th>추가</th><th>삭제</th><th>응답 때문에 유지</th></tr>
+    {% for r, v in diff.by_relation.items() if v.add or v.remove or v.keep %}
+    <tr><td>{{ r }}</td><td>{{ v.add }}</td><td>{{ v.remove }}</td><td>{{ v.keep }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+{% if diff.keep %}
+<div class="card" style="border-color:var(--amberborder);">
+  <b>⚠ 로스터에는 없지만 이미 응답이 있어 지우지 않고 남기는 매핑 {{ diff.keep|length }}건</b>
+  <div style="font-size:12.5px;color:var(--gray);margin:4px 0;">조직 변경으로 대상이 바뀐 경우 이전 대상에 대한 응답이 그대로 남습니다. 필요하면 평가자에게 별도 안내가 필요합니다.</div>
+  <ul style="margin:0;padding-left:18px;font-size:13px;">
+    {% for m in diff.keep[:30] %}<li>{{ m.writer_name }} → {{ m.target_name }} ({{ m.relation_type }}, 응답 {{ m.response_count }}건)</li>{% endfor %}
+    {% if diff.keep|length > 30 %}<li>… 외 {{ diff.keep|length - 30 }}건</li>{% endif %}
+  </ul>
+</div>
+{% endif %}
+
+{% if diff.new_people or diff.changed or diff.missing %}
+<div class="card" style="font-size:13px;line-height:1.7;">
+  {% if diff.new_people %}<b>신규 인원 {{ diff.new_people|length }}명</b>: {{ diff.new_people[:30]|map(attribute='name')|join(', ') }}{% if diff.new_people|length > 30 %} 외 {{ diff.new_people|length - 30 }}명{% endif %}<br>{% endif %}
+  {% if diff.changed %}<b>정보가 바뀌는 인원 {{ diff.changed|length }}명</b>
+  <ul style="margin:2px 0 6px;padding-left:18px;">
+    {% for c in diff.changed[:40] %}<li>{{ c.name }}: {% for f, a, b in c.diffs %}{{ f }} <s>{{ a }}</s> → <b>{{ b }}</b>{% if not loop.last %}, {% endif %}{% endfor %}</li>{% endfor %}
+    {% if diff.changed|length > 40 %}<li>… 외 {{ diff.changed|length - 40 }}명</li>{% endif %}
+  </ul>{% endif %}
+  {% if diff.missing %}<b style="color:var(--amber);">로스터에서 빠진 기존 인원 {{ diff.missing|length }}명</b>: {{ diff.missing[:30]|map(attribute='name')|join(', ') }}
+  <div style="color:var(--gray);font-size:12.5px;">이 인원의 계정은 남지만, 응답이 없는 매핑은 정리됩니다. (퇴사·휴직자라면 의도한 결과인지 확인)</div>{% endif %}
+</div>
+{% endif %}
+
+{% if diff.impact %}
+<details class="card" style="padding:10px 14px;">
+  <summary style="cursor:pointer;font-weight:700;">매핑이 달라지는 평가자 {{ diff.impact|length }}명 <span style="color:var(--gray);font-weight:400;">(많이 바뀌는 순)</span></summary>
+  <table style="margin-top:8px;">
+    <tr><th>평가자</th><th>추가</th><th>삭제</th><th>유지(응답有)</th></tr>
+    {% for r in diff.impact[:60] %}<tr><td>{{ r.name }}</td><td>+{{ r.add }}</td><td>−{{ r.remove }}</td><td>{{ r.keep }}</td></tr>{% endfor %}
+  </table>
+  {% if diff.impact|length > 60 %}<div style="font-size:12px;color:var(--gray);margin-top:6px;">… 외 {{ diff.impact|length - 60 }}명</div>{% endif %}
+</details>
+{% endif %}
+{% endif %}
+
+<h2>3. 자동 점검 결과 <span style="font-size:13px;color:var(--gray);font-weight:400;">(반영 후 상태 기준)</span></h2>
+{% if notes %}
+<details class="card" style="padding:10px 14px;border-color:var(--amberborder);" open>
+  <summary style="cursor:pointer;font-weight:700;"><span class="badge badge-pending">확인 필요</span> 로스터 입력 확인 <span style="color:var(--gray);font-weight:400;">· {{ notes|length }}건</span></summary>
+  <ul style="margin:8px 0 0;padding-left:18px;font-size:13px;line-height:1.7;">{% for n in notes[:60] %}<li>{{ n.text }}</li>{% endfor %}</ul>
+</details>
+{% endif %}
+{% if audit.findings %}
+{% with findings=audit.findings, link=false %}{% include "_findings.html" %}{% endwith %}
+{% elif not notes %}
+<div class="card" style="background:var(--greenbg);border-color:var(--green);">✅ 자동 점검에서 걸린 항목이 없습니다.</div>
+{% endif %}
+<div style="font-size:12px;color:var(--gray);margin-bottom:8px;">
+  ※ 자동 점검은 "의심되는 곳"을 찾아줄 뿐 정답을 판정하지 않습니다. 교차 협업처럼 의도한 구성은 경고로 나올 수 있으니 하나씩 확인하세요.
+  반영 후에는 <b>매핑 점검</b> 화면에서 사람별 연결을 직접 확인할 수 있습니다.
+</div>
+
+<h2>4. 동료평가 그룹별 인원</h2>
+<div class="card">
+  <span style="color:var(--gray);font-size:13px;">태그 오타가 없는지 확인하세요 (오타가 나면 인원 1명짜리 그룹이 생깁니다)</span>
+  <table style="margin-top:8px;">
+    <tr><th>그룹(태그)</th><th>인원</th></tr>
+    {% for g in plan.peer_group_stats %}
+    <tr><td>{{ g.label }}</td><td>{{ g.members }}명{% if g.members < 2 %} <span class="badge badge-pending">⚠ 1명 — 오타 확인</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+
+<h2>반영</h2>
+<form method="post" action="/admin/upload_roster/apply" class="card">
+  <input type="hidden" name="token" value="{{ token }}">
+  {% if needs_ack %}
+  <label style="display:block;margin-bottom:12px;font-size:14px;">
+    <input type="checkbox" name="ack" value="1" required>
+    위의 <b>확인 필요 항목{% if diff.n_keep %}, 응답으로 유지되는 매핑{% endif %}{% if diff.large_change %}, 큰 변동{% endif %}</b>을 확인했습니다.
+  </label>
+  {% endif %}
+  <button class="btn" type="submit">✅ 이 내용으로 반영</button>
+  <button class="btn btn-secondary" type="submit" formaction="/admin/upload_roster/cancel" formnovalidate style="margin-left:8px;">폐기하고 돌아가기</button>
+</form>
+{% endif %}
+{% endblock %}

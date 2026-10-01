@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>매핑 점검</h1>
+<p class="desc">
+  <a href="/admin">← 관리자로</a> &nbsp;·&nbsp; 누가 누구를 평가하는지 <b>연결 관계만</b> 보여줍니다 (응답 점수·코멘트는 나오지 않습니다).
+  &nbsp;|&nbsp; <a href="/admin/mappings/export">📥 매핑 전체 엑셀</a>
+</p>
+
+{% if empty %}
+<div class="card">아직 업로드된 로스터가 없습니다. 관리자 화면에서 로스터를 먼저 올려주세요.</div>
+{% else %}
+
+<div class="stat-row">
+  <div class="stat-box"><div class="stat-label">인원 (팀원 / 팀장)</div><div class="stat-value">{{ audit.stats.employees }} <span style="font-size:14px;color:var(--gray);">({{ audit.stats.members }} / {{ audit.stats.leaders }})</span></div></div>
+  <div class="stat-box"><div class="stat-label">매핑 합계</div><div class="stat-value">{{ audit.stats.total }}건</div></div>
+  <div class="stat-box"><div class="stat-label">확인 필요</div><div class="stat-value" style="{% if audit.n_warn %}color:var(--amber);{% endif %}">{{ audit.n_warn }}건</div></div>
+</div>
+<div class="card" style="font-size:13px;">
+  {% for r, n in audit.stats.by_relation.items() %}{{ r }} <b>{{ n }}</b>{% if not loop.last %} · {% endif %}{% endfor %}
+</div>
+
+<h2>사람별 연결 확인</h2>
+<form method="get" action="/admin/mappings" class="card" style="display:flex;gap:8px;">
+  <input type="text" name="q" value="{{ q }}" placeholder="이름 또는 이메일로 검색" style="flex:1;" autocomplete="off">
+  <button class="btn" type="submit">검색</button>
+</form>
+
+{% if q and not matches %}<div class="card" style="color:var(--gray);">'{{ q }}'에 해당하는 사람이 없습니다.</div>{% endif %}
+{% if matches and not selected %}
+<div class="card">
+  {% for r in matches[:30] %}
+  <div style="padding:4px 0;"><a href="/admin/mappings?p={{ r.email|urlencode }}">{{ r.name }}</a>
+    <span style="color:var(--gray);font-size:13px;">{{ r.org_group }} / {{ r.team }} · {{ r.grade }} · {{ r.role }} · {{ r.email }}</span></div>
+  {% endfor %}
+  {% if matches|length > 30 %}<div style="font-size:12px;color:var(--gray);">… 외 {{ matches|length - 30 }}명 (검색어를 더 구체적으로)</div>{% endif %}
+</div>
+{% endif %}
+
+{% if selected %}
+<div class="card" style="border:2px solid var(--blue);">
+  <div style="font-size:18px;font-weight:700;">{{ selected.info.name }}
+    <span style="font-size:13px;color:var(--gray);font-weight:400;">{{ selected.info.org_group }} / {{ selected.info.team }} · {{ selected.info.grade }} · {{ selected.info.role }} · {{ selected.info.email }}</span></div>
+  {% if selected.flags %}
+  <div style="margin:8px 0;font-size:13px;">
+    {% for g in selected.flags %}<span class="badge badge-pending" style="margin-right:4px;">⚠ {{ g.title }}</span>{% endfor %}
+  </div>
+  {% endif %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:12px;">
+    <div>
+      <h3 style="margin:0 0 6px;font-size:14px;color:var(--navy);">이 사람이 평가해야 할 대상</h3>
+      {% for r, lst in selected.out %}
+      <div style="margin-bottom:10px;"><b style="font-size:13px;">{{ r }}</b> <span style="color:var(--gray);font-size:12px;">{{ lst|length }}명</span>
+        <ul style="margin:2px 0;padding-left:18px;font-size:13px;line-height:1.6;">
+          {% for x in lst %}<li><a href="/admin/mappings?p={{ x.email|urlencode }}">{{ x.label }}</a> <span style="color:var(--gray);">{{ x.grade }}</span>
+            {% if x.responded %}<span style="color:var(--green);">✔ 응답 있음</span>{% else %}<span style="color:#9CA3AF;">– 미응답</span>{% endif %}</li>{% endfor %}
+        </ul></div>
+      {% else %}<div style="color:var(--gray);font-size:13px;">없음</div>{% endfor %}
+    </div>
+    <div>
+      <h3 style="margin:0 0 6px;font-size:14px;color:var(--navy);">이 사람을 평가할 사람</h3>
+      {% for r, lst in selected.inc %}
+      <div style="margin-bottom:10px;"><b style="font-size:13px;">{{ r }}</b> <span style="color:var(--gray);font-size:12px;">{{ lst|length }}명</span>
+        <ul style="margin:2px 0;padding-left:18px;font-size:13px;line-height:1.6;">
+          {% for x in lst %}<li><a href="/admin/mappings?p={{ x.email|urlencode }}">{{ x.label }}</a> <span style="color:var(--gray);">{{ x.grade }}</span></li>{% endfor %}
+        </ul></div>
+      {% else %}<div style="color:var(--gray);font-size:13px;">없음</div>{% endfor %}
+    </div>
+  </div>
+  <div style="margin-top:8px;"><a href="/admin/mappings">← 목록으로</a></div>
+</div>
+{% endif %}
+
+<h2>자동 점검 결과</h2>
+{% if audit.findings %}
+<div style="font-size:12.5px;color:var(--gray);margin-bottom:8px;">항목을 누르면 해당 사람의 연결 상세로 이동합니다. 의도한 구성(교차 협업 등)은 경고로 나올 수 있습니다.</div>
+{% with findings=audit.findings, link=true %}{% include "_findings.html" %}{% endwith %}
+{% else %}
+<div class="card" style="background:var(--greenbg);border-color:var(--green);">✅ 자동 점검에서 걸린 항목이 없습니다.</div>
+{% endif %}
+
+<h2>전체 인원 한눈에 보기</h2>
+<div class="card">
+  <input type="text" id="rowfilter" placeholder="표 안에서 이름/팀 필터" style="margin-bottom:8px;" autocomplete="off">
+  <div style="overflow-x:auto;">
+  <table id="peopletable">
+    <tr><th>이름</th><th>그룹 / 팀</th><th>역할</th><th>리더</th><th>평가할 동료</th><th>받는 팀장평가</th><th>경고</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><a href="/admin/mappings?p={{ r.email|urlencode }}">{{ r.name }}</a></td>
+      <td>{{ r.org_group }} / {{ r.team }}</td><td>{{ r.role }}</td>
+      <td>{{ r.leaders|join(', ') if r.leaders else ('-' if r.role == '팀원' else '') }}</td>
+      <td>{{ r.peers if r.role == '팀원' else '-' }}</td>
+      <td>{{ r.raters if r.role == '팀장' else '-' }}</td>
+      <td>{% if r.flags %}<span class="badge badge-pending">⚠ {{ r.flags }}</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+<script>
+document.getElementById('rowfilter').addEventListener('input', function(){
+  var q = this.value.trim().toLowerCase();
+  document.querySelectorAll('#peopletable tr').forEach(function(tr, i){
+    if (i === 0) return;
+    tr.style.display = (!q || tr.textContent.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

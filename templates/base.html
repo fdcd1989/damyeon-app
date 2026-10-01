@@ -183,6 +183,33 @@
   .eval-overall .hint { font-size: 12px; color: var(--gray); margin-bottom: 8px; }
   .eval-overall textarea { width: 100%; height: 70px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; resize: vertical; }
 
+  .eval-item.is-partial .dot-icon { background: #FBF3E6; color: #C98A1F; border-color: #E8C98A; }
+  .eval-item.is-partial .name { color: #374151; }
+
+  /* 하단 고정 저장 바 */
+  .eval-savebar {
+    position: sticky; bottom: 0; z-index: 20; margin-top: 16px; padding: 12px 14px;
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 -4px 14px rgba(31,56,100,0.08); display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .eval-savebar .status { flex: 1 1 200px; font-size: 13px; color: var(--gray); }
+  .eval-savebar .status.is-dirty { color: var(--amber); font-weight: 700; }
+  .eval-savebar .status.is-saved { color: var(--green); font-weight: 700; }
+  .eval-savebar .btn-save { min-width: 140px; font-size: 15px; }
+  .eval-savebar .btn[disabled] { background: #C9CED6; cursor: not-allowed; }
+
+  /* 저장 완료 알림(화면 상단, 눈에 띄게) */
+  #toast {
+    position: fixed; top: 18px; left: 50%; transform: translate(-50%, -140%); z-index: 1000;
+    max-width: min(560px, 92vw); padding: 16px 22px; border-radius: 12px; color: #fff;
+    font-size: 16px; font-weight: 700; line-height: 1.45; box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    transition: transform .25s ease; cursor: pointer; background: var(--green);
+  }
+  #toast.show { transform: translate(-50%, 0); }
+  #toast.warn { background: #B7791F; }
+  #toast.error { background: var(--red); }
+  #toast .sub { display: block; font-size: 13px; font-weight: 500; opacity: .95; margin-top: 3px; }
+
   @media (max-width: 860px) {
     .eval-shell { flex-direction: column; }
     .eval-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
@@ -191,6 +218,29 @@
 </style>
 </head>
 <body class="{% block body_class %}{% endblock %}">
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+/* 공용 알림: showToast(메시지, 종류, 보조문구). 페이지 이동 직전에 저장한 경우, 이동한 화면에서 이어서 보여준다. */
+var __toastTimer = null;
+function showToast(msg, kind, sub, sticky) {
+  var el = document.getElementById('toast');
+  el.className = (kind || '');
+  el.innerHTML = '';
+  el.appendChild(document.createTextNode(msg));
+  if (sub) { var sp = document.createElement('span'); sp.className = 'sub'; sp.textContent = sub; el.appendChild(sp); }
+  void el.offsetWidth;
+  el.classList.add('show');
+  clearTimeout(__toastTimer);
+  if (!sticky) __toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 7000);
+}
+document.getElementById('toast').addEventListener('click', function(){ this.classList.remove('show'); });
+(function(){
+  try {
+    var raw = sessionStorage.getItem('evalFlash');
+    if (raw) { sessionStorage.removeItem('evalFlash'); var f = JSON.parse(raw); showToast(f.msg, f.kind, f.sub); }
+  } catch (e) {}
+})();
+</script>
 {% block body %}
 <div class="wrap">
   <header class="top">

@@ -19,9 +19,9 @@
 
     <div class="eval-progress-head">
       <span class="label">전체 진행</span>
-      <span class="count">{{ done_count }} / {{ total_count }}</span>
+      <span class="count" id="progress-count">{{ done_count }} / {{ total_count }}</span>
     </div>
-    <div class="eval-progress-bar"><div style="width:{{ progress_pct }}%;"></div></div>
+    <div class="eval-progress-bar"><div id="progress-fill" style="width:{{ progress_pct }}%;"></div></div>
 
     {% for cat in sidebar_categories %}
     <div class="eval-cat">
@@ -31,9 +31,10 @@
         <span class="count" style="color:{{ cat.color }};">{{ cat.entries|length }}건</span>
       </div>
       {% for item in cat.entries %}
-      <div class="eval-item {% if item.status == 'current' %}is-current{% elif item.status == 'done' %}is-done{% endif %}">
+      <div class="eval-item {% if item.status == 'current' %}is-current{% elif item.status == 'done' %}is-done{% elif item.status == 'partial' %}is-partial{% endif %}"
+           data-mapping-id="{{ item.mapping_id }}">
         <a href="/evaluate/{{ item.mapping_id }}">
-          <span class="dot-icon">{% if item.status == 'done' %}✓{% elif item.status == 'current' %}●{% endif %}</span>
+          <span class="dot-icon">{% if item.status == 'current' %}{% if item.done %}✓{% else %}●{% endif %}{% elif item.status == 'done' %}✓{% elif item.status == 'partial' %}…{% endif %}</span>
           <span class="name">{{ item.name }}</span>
         </a>
       </div>
@@ -42,7 +43,7 @@
     {% endfor %}
 
     <div class="eval-sidebar-legend">
-      회색 = 대기 · 파란 테두리 = 지금 보는 중 · 초록 체크 = 완료
+      회색 = 대기 · 주황 … = 작성 중 · 파란 테두리 = 지금 보는 중 · 초록 체크 = 완료
       <div style="margin-top:10px;">{{ credit_line() }}</div>
     </div>
   </aside>
@@ -113,18 +114,34 @@
         <textarea name="overall_comment" placeholder="예: 새로운 업무에도 빠르게 적응하고 팀 분위기를 잘 만들어줘서 함께 일하기 좋았습니다.">{{ overall_comment or "" }}</textarea>
       </div>
 
-      <button class="btn" type="submit" style="width:100%;">저장하고 목록으로</button>
+      <div class="eval-savebar">
+        <span class="status" id="save-status">{% if is_locked %}🔒 마감됨 — 조회만 가능합니다{% else %}변경 사항 없음{% endif %}</span>
+        <a class="btn btn-secondary" href="/dashboard" id="list-btn">← 목록으로</a>
+        <button class="btn btn-save" type="submit" id="save-btn">💾 저장</button>
+      </div>
     </fieldset>
     </form>
-    <p style="margin-top:14px;"><a href="/dashboard">← 목록으로 돌아가기</a></p>
   </main>
 </div>
 
 <script>
+var IS_LOCKED = {{ 'true' if is_locked else 'false' }};
+var SAVE_URL = '/evaluate/{{ mapping.id }}/autosave';
+var form = document.getElementById('eval-form');
+var statusEl = document.getElementById('save-status');
+var saveBtn = document.getElementById('save-btn');
+var dirty = false, saving = false;
+
+function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = 'status ' + (cls || ''); }
+function setDirty() {
+  if (IS_LOCKED) return;
+  dirty = true;
+  setStatus('● 저장하지 않은 변경 사항이 있습니다 (다른 사람으로 이동하면 자동 저장됩니다)', 'is-dirty');
+}
+
 function markAllNA() {
-  document.querySelectorAll('#eval-form input[type=radio][value="NA"]').forEach(function(el) {
-    el.checked = true;
-  });
+  document.querySelectorAll('#eval-form input[type=radio][value="NA"]').forEach(function(el) { el.checked = true; });
+  setDirty();
 }
 function toggleComment(i) {
   var box = document.getElementById('comment_' + i);
@@ -132,5 +149,85 @@ function toggleComment(i) {
   var open = box.classList.toggle('is-open');
   btn.textContent = open ? '코멘트 닫기 ▲' : '+ 코멘트 추가';
 }
+
+form.addEventListener('input', setDirty);
+form.addEventListener('change', setDirty);
+
+/* 저장: 성공하면 {ok:true, info} 반환. 실패하면 오류 알림을 띄우고 {ok:false} 반환 */
+function saveNow() {
+  if (saving) return Promise.resolve({ ok: false, busy: true });
+  saving = true;
+  saveBtn.disabled = true;
+  setStatus('저장 중…', '');
+  return fetch(SAVE_URL, { method: 'POST', body: new FormData(form), credentials: 'same-origin' })
+    .then(function(res) { return res.json().catch(function(){ return { ok: false, message: '서버 응답을 해석하지 못했습니다.' }; }); })
+    .catch(function() { return { ok: false, message: '서버에 연결하지 못했습니다. 네트워크를 확인해주세요.' }; })
+    .then(function(data) {
+      saving = false; saveBtn.disabled = false;
+      if (!data.ok) {
+        setStatus('⚠ 저장 실패 — 이동하지 않았습니다', 'is-dirty');
+        showToast('저장하지 못했습니다', 'error', data.message || '잠시 후 다시 시도해주세요.', true);
+        return { ok: false };
+      }
+      dirty = false;
+      setStatus('✓ ' + data.saved_at + ' 저장됨', 'is-saved');
+      applyProgress(data);
+      return { ok: true, data: data };
+    });
+}
+
+function describe(data) {
+  var main = data.name + '님 평가가 저장되었습니다 ✓';
+  var sub = data.complete
+    ? '모든 문항 응답 완료 — 다른 분 평가로 넘어가셔도 됩니다.'
+    : '응답 ' + data.answered + '/' + data.total + '문항 저장됨 · 아직 응답하지 않은 문항이 ' + (data.total - data.answered) + '개 있어요. (나중에 이어서 해도 됩니다)';
+  var kind = data.complete ? '' : 'warn';
+  if (data.skipped_comments > 0) {
+    sub += ' ⚠ 점수를 고르지 않은 문항의 코멘트 ' + data.skipped_comments + '개는 저장되지 않았습니다.';
+    kind = 'warn';
+  }
+  return { msg: main, sub: sub, kind: kind };
+}
+
+function applyProgress(data) {
+  document.getElementById('progress-count').textContent = data.done_count + ' / ' + data.total_count;
+  document.getElementById('progress-fill').style.width = data.progress_pct + '%';
+  var cur = document.querySelector('.eval-item.is-current .dot-icon');
+  if (cur) cur.textContent = data.complete ? '✓' : '●';
+}
+
+/* [저장] 버튼: 화면은 그대로 두고 저장 + 눈에 띄는 알림 */
+form.addEventListener('submit', function(e) {
+  if (IS_LOCKED) return;
+  e.preventDefault();
+  saveNow().then(function(r) {
+    if (r.ok) { var d = describe(r.data); showToast(d.msg, d.kind, d.sub); }
+  });
+});
+
+/* 다른 사람/목록으로 이동: 변경이 있으면 먼저 자동 저장하고, 저장된 것이 확인된 뒤에만 이동 */
+document.addEventListener('click', function(e) {
+  var a = e.target.closest('a[href]');
+  if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  if (a.target === '_blank' || a.getAttribute('href').charAt(0) !== '/') return;
+  if (!dirty || IS_LOCKED) return;   // 변경 없으면 그냥 이동
+  e.preventDefault();
+  var href = a.getAttribute('href');
+  saveNow().then(function(r) {
+    if (!r.ok) return;                // 실패하면 이동하지 않고 현재 화면에 남아 오류 알림 유지
+    var d = describe(r.data);
+    try { sessionStorage.setItem('evalFlash', JSON.stringify({ msg: d.msg.replace('저장되었습니다', '자동 저장되었습니다'), sub: d.sub, kind: d.kind })); } catch (err) {}
+    window.location.href = href;
+  });
+});
+
+/* 탭 닫기/새로고침 등 링크 클릭이 아닌 이탈은 브라우저 기본 경고 */
+window.addEventListener('beforeunload', function(e) {
+  if (dirty && !IS_LOCKED) { e.preventDefault(); e.returnValue = ''; }
+});
+
+{% if saved_flash %}
+showToast('저장되었습니다 ✓', '', '필요하면 왼쪽 목록에서 다른 분을 선택해 이어서 평가하세요.');
+{% endif %}
 </script>
 {% endblock %}

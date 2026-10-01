@@ -4,6 +4,7 @@
 <p class="desc">
   <a href="/dashboard">← 내 대시보드로</a> &nbsp;|&nbsp;
   <a href="/admin/questions">문항 관리</a> &nbsp;|&nbsp;
+  <a href="/admin/mappings">매핑 점검</a> &nbsp;|&nbsp;
   <a href="/admin/history">평가 이력 조회</a> &nbsp;|&nbsp;
   <a href="/admin/purge" style="color:var(--red);">백업·삭제·임시 보관</a>
   &nbsp;·&nbsp; <span style="color:var(--gray);">현재 회차: <b>{{ current_round_name }}</b></span>
@@ -32,19 +33,20 @@
 <p class="desc">
   필수 컬럼: 이름, 이메일, 그룹, 팀, 직군, 직급, 역할(팀원/팀장).<br>
   선택 컬럼: 리더이메일(팀원만, 콤마로 복수 가능), <b>동료평가그룹</b>(태그를 하나라도 공유하는 사람끼리 팀 경계 없이 동료평가로 묶임 — 교차평가/서브그룹용. <b>콤마로 여러 개</b> 지정 가능, 대소문자·공백 무시. 예: 직속팀 <code>SOL-N,SOL-E</code> / Network연구실 <code>SOL-N</code> / Endpoint연구실 <code>SOL-E</code>. 비워두면 기존처럼 같은 그룹+팀 전체가 자동으로 묶임).<br>
-  업로드하면 본인평가·동료평가·팀장평가·팀장간평가 매핑이 자동으로 생성되고, 이번 로스터에 더 이상 없는 매핑 중 응답이 없는 것은 자동 정리됩니다.
+  업로드하면 <b>먼저 미리보기</b>(무엇이 추가·삭제되는지, 자동 점검 결과)가 나오고, 확인 후 [반영]을 눌러야 적용됩니다. 반영 시 본인평가·동료평가·팀장평가·팀장간평가 매핑이 생성되고, 이번 로스터에 더 이상 없는 매핑 중 응답이 없는 것은 정리됩니다. 로스터를 고쳐서 다시 올려도 바뀐 부분만 반영됩니다.
 </p>
 <a class="btn btn-secondary" href="/admin/roster_template" style="margin-bottom:10px;display:inline-block;">📥 업로드 양식 다운로드</a>
 <form method="post" action="/admin/upload_roster" enctype="multipart/form-data" class="card">
   <input type="file" name="file" accept=".xlsx,.csv" required style="margin-bottom:10px;">
   <br>
-  <button class="btn" type="submit">업로드 및 매핑 생성</button>
+  <button class="btn" type="submit">업로드 (미리보기)</button>
 </form>
 
 {% if upload_result %}
   {% if upload_result.ok %}
   <div class="card" style="background:var(--greenbg);border-color:var(--green);">
-    ✅ 매핑 생성 완료 — {{ upload_result.summary }}
+    ✅ 매핑 반영 완료 — {{ upload_result.summary }}<br>
+    <a href="/admin/mappings">→ 매핑 점검 화면에서 사람별 연결 확인하기</a>
   </div>
   {% if upload_result.peer_group_stats %}
   <div class="card">
