@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>데이터 백업 · 삭제 · 임시 보관</h1>
+<p class="desc">
+  <a href="/admin">← 관리자로</a>
+  &nbsp;·&nbsp; <span style="color:var(--gray);">현재 회차: <b>{{ current_round_name }}</b></span>
+</p>
+
+{% if flash %}
+<div class="card" style="{% if flash.ok %}background:var(--greenbg);border-color:var(--green);{% else %}background:#FBEDED;border-color:var(--red);{% endif %}">
+  {{ flash.msg }}
+</div>
+{% endif %}
+
+<div class="card" style="background:var(--amberbg);border-color:var(--amberborder);">
+  <b>이 화면의 원칙</b><br>
+  ① 백업 ZIP을 받아 <b>사내 PC/사내 저장소</b>에 보관 → ② ZIP 안의 <code>manifest.json</code>으로 건수 확인 → ③ 범위를 골라 삭제.<br>
+  삭제 직전 상태는 서버에 <b>24시간만</b> 임시 보관되고 자동으로 완전 삭제됩니다.<br>
+  <span style="color:var(--gray);font-size:13px;">
+    ※ 이 앱은 Railway 볼륨 스냅샷/백업과 디스크 내부의 잔존 블록까지는 지울 수 없습니다. Railway 설정에서 볼륨 백업이 꺼져 있는지 직접 확인하세요.
+  </span>
+</div>
+
+<h2>1단계. 최종 백업 받기</h2>
+<div class="card">
+  <p class="desc" style="margin-bottom:10px;">
+    모든 회차의 <b>collect.db 스냅샷 + 회차별 엑셀 + manifest.json</b>을 ZIP 하나로 내려받습니다.
+    ZIP은 서버에 저장되지 않으며, 서버에는 해시와 건수만 기록됩니다.
+  </p>
+  <form method="post" action="/admin/purge/backup" style="display:inline;">
+    <button class="btn" type="submit">📦 최종 백업 ZIP 받기</button>
+  </form>
+  <div style="margin-top:12px;font-size:13px;">
+    {% if backup.exists %}
+      최근 백업: <b>{{ backup.created_kst }}</b> (KST) · 생성자 {{ backup.admin }}<br>
+      ZIP SHA-256: <code style="word-break:break-all;">{{ backup.zip_sha256 }}</code><br>
+      <span style="color:var(--gray);">Windows 검증: PowerShell에서 <code>Get-FileHash 파일명.zip</code> 값이 위와 같은지 비교</span><br>
+      {% if backup.stale %}
+        <span class="badge badge-pending">⚠ 백업 이후 데이터가 변경됨 — 다시 받아야 삭제 가능</span>
+      {% else %}
+        <span class="badge badge-done">✔ 최신 상태의 백업</span>
+      {% endif %}
+    {% else %}
+      <span style="color:var(--gray);">아직 받은 백업이 없습니다. (삭제 불가)</span>
+    {% endif %}
+  </div>
+</div>
+
+<h2>2단계. 삭제할 범위 선택</h2>
+<form method="post" action="/admin/purge/execute" class="card" id="purge-form"
+      onsubmit="return confirm('선택한 데이터를 삭제합니다. 24시간 안에는 이 화면에서 복구할 수 있습니다. 계속할까요?');">
+  <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;">
+    <label>
+      <input type="checkbox" name="scopes" value="responses" id="sc-responses">
+      <b>{{ scope_label.responses }}</b>
+      <span style="color:var(--gray);">— 응답 {{ counts.cur_responses }}건 · 총평 {{ counts.cur_overall }}건</span>
+    </label>
+    <label>
+      <input type="checkbox" name="scopes" value="mappings" id="sc-mappings">
+      <b>{{ scope_label.mappings }}</b>
+      <span style="color:var(--gray);">— {{ counts.cur_mappings }}건 (선택 시 응답도 함께 삭제)</span>
+    </label>
+    <label>
+      <input type="checkbox" name="scopes" value="employees" id="sc-employees">
+      <b>{{ scope_label.employees }}</b>
+      <span style="color:var(--gray);">— {{ counts.cur_employees }}명 (선택 시 매핑·응답도 함께 삭제, 삭제 후 재로그인 필요)</span>
+    </label>
+    <label>
+      <input type="checkbox" name="scopes" value="history" id="sc-history">
+      <b>{{ scope_label.history }}</b>
+      <span style="color:var(--gray);">— 회차 {{ counts.past_rounds }}개 · 인원 {{ counts.past_employees }}명 · 매핑 {{ counts.past_mappings }}건 · 응답 {{ counts.past_responses }}건</span>
+    </label>
+  </div>
+
+  <div style="display:grid;gap:10px;max-width:420px;">
+    <div>
+      <label style="font-size:13px;font-weight:600;color:var(--navy);">확인용 응답 건수 (ZIP 안 manifest.json 의 '확인용_응답_건수')</label>
+      <input type="text" name="response_count" inputmode="numeric" autocomplete="off" placeholder="숫자 입력" required>
+    </div>
+    <div>
+      <label style="font-size:13px;font-weight:600;color:var(--navy);">현재 회차명을 정확히 입력: <code>{{ current_round_name }}</code></label>
+      <input type="text" name="round_name" autocomplete="off" required>
+    </div>
+  </div>
+
+  {% if not fresh_login %}
+  <div style="margin-top:12px;font-size:13px;color:var(--red);">
+    🔐 삭제하려면 최근 30분 이내 로그인이 필요합니다. <a href="/logout">다시 로그인</a> 후 이 화면으로 돌아오세요.
+  </div>
+  {% endif %}
+
+  {% set blocked = (not backup.exists) or backup.stale or (not fresh_login) %}
+  <button class="btn" type="submit"
+          style="margin-top:14px;background:{{ '#C9CED6' if blocked else 'var(--red)' }};{{ 'cursor:not-allowed;' if blocked else '' }}"
+          {% if blocked %}disabled{% endif %}>
+    선택한 데이터 삭제
+  </button>
+  {% if not backup.exists or backup.stale %}
+  <span style="font-size:12px;color:var(--gray);margin-left:8px;">유효한 최신 백업이 있어야 활성화됩니다.</span>
+  {% endif %}
+</form>
+
+<h2>임시 보관 중인 삭제본 (24시간 후 자동 완전 삭제)</h2>
+{% if trash %}
+  {% for t in trash %}
+  <div class="card">
+    <div><b>{{ t.round_name }}</b> · 삭제 {{ t.created_kst }} · 관리자 {{ t.admin }}</div>
+    <div style="font-size:13px;color:var(--gray);margin:4px 0;">
+      범위: {{ t.scopes|join(', ') }}<br>
+      응답 {{ t.counts.cur_responses }}건 · 총평 {{ t.counts.cur_overall }}건 · 매핑 {{ t.counts.cur_mappings }}건 · 인원 {{ t.counts.cur_employees }}명
+    </div>
+    <div style="font-size:13px;">⏳ <b>{{ t.expires_kst }}</b> (KST)에 자동 완전 삭제</div>
+    <div style="margin-top:8px;display:flex;gap:8px;">
+      {% if t.restorable %}
+      <form method="post" action="/admin/purge/trash/{{ t.id }}/restore"
+            onsubmit="return confirm('삭제 직전 상태로 복구합니다. 계속할까요?');">
+        <button class="btn btn-secondary" type="submit">↩ 복구</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/admin/purge/trash/{{ t.id }}/delete"
+            onsubmit="return confirm('임시 보관본을 지금 완전히 삭제합니다. 이후에는 복구할 수 없습니다. 계속할까요?');">
+        <button class="btn" type="submit" style="background:var(--red);">지금 완전 삭제</button>
+      </form>
+    </div>
+    {% if not t.restorable %}<div style="font-size:12px;color:var(--gray);margin-top:6px;">복구 불가 상태(삭제가 완료되지 않은 보관본)</div>{% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card" style="color:var(--gray);">임시 보관 중인 삭제본이 없습니다.</div>
+{% endif %}
+
+<script>
+(function(){
+  var r=document.getElementById('sc-responses'), m=document.getElementById('sc-mappings'), e=document.getElementById('sc-employees');
+  function sync(){
+    if(e.checked){ m.checked=true; r.checked=true; m.disabled=true; r.disabled=true; }
+    else if(m.checked){ r.checked=true; r.disabled=true; m.disabled=false; }
+    else { r.disabled=false; m.disabled=false; }
+  }
+  // disabled 체크박스는 전송되지 않으므로 제출 직전에 풀어준다 (서버도 상위→하위를 강제함)
+  document.getElementById('purge-form').addEventListener('submit', function(){ r.disabled=false; m.disabled=false; });
+  [r,m,e].forEach(function(x){ x.addEventListener('change', sync); });
+  sync();
+})();
+</script>
+{% endblock %}

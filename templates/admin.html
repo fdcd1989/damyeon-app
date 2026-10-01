@@ -4,7 +4,8 @@
 <p class="desc">
   <a href="/dashboard">← 내 대시보드로</a> &nbsp;|&nbsp;
   <a href="/admin/questions">문항 관리</a> &nbsp;|&nbsp;
-  <a href="/admin/history">평가 이력 조회</a>
+  <a href="/admin/history">평가 이력 조회</a> &nbsp;|&nbsp;
+  <a href="/admin/purge" style="color:var(--red);">백업·삭제·임시 보관</a>
   &nbsp;·&nbsp; <span style="color:var(--gray);">현재 회차: <b>{{ current_round_name }}</b></span>
 </p>
 {% if is_locked %}
@@ -30,7 +31,7 @@
 <h2>로스터 업로드</h2>
 <p class="desc">
   필수 컬럼: 이름, 이메일, 그룹, 팀, 직군, 직급, 역할(팀원/팀장).<br>
-  선택 컬럼: 리더이메일(팀원만, 콤마로 복수 가능), <b>동료평가그룹</b>(값이 같은 사람끼리 팀 경계 없이 전부 동료평가로 묶임 — 교차평가/서브그룹용, 비워두면 기존처럼 같은 그룹+팀 전체가 자동으로 묶임).<br>
+  선택 컬럼: 리더이메일(팀원만, 콤마로 복수 가능), <b>동료평가그룹</b>(태그를 하나라도 공유하는 사람끼리 팀 경계 없이 동료평가로 묶임 — 교차평가/서브그룹용. <b>콤마로 여러 개</b> 지정 가능, 대소문자·공백 무시. 예: 직속팀 <code>SOL-N,SOL-E</code> / Network연구실 <code>SOL-N</code> / Endpoint연구실 <code>SOL-E</code>. 비워두면 기존처럼 같은 그룹+팀 전체가 자동으로 묶임).<br>
   업로드하면 본인평가·동료평가·팀장평가·팀장간평가 매핑이 자동으로 생성되고, 이번 로스터에 더 이상 없는 매핑 중 응답이 없는 것은 자동 정리됩니다.
 </p>
 <a class="btn btn-secondary" href="/admin/roster_template" style="margin-bottom:10px;display:inline-block;">📥 업로드 양식 다운로드</a>
@@ -45,6 +46,17 @@
   <div class="card" style="background:var(--greenbg);border-color:var(--green);">
     ✅ 매핑 생성 완료 — {{ upload_result.summary }}
   </div>
+  {% if upload_result.peer_group_stats %}
+  <div class="card">
+    <b>동료평가 그룹별 인원</b> <span style="color:var(--gray);font-size:13px;">— 태그 오타가 없는지 확인하세요 (오타가 나면 인원 1명짜리 그룹이 생깁니다)</span>
+    <table style="margin-top:8px;">
+      <tr><th>그룹(태그)</th><th>인원</th></tr>
+      {% for g in upload_result.peer_group_stats %}
+      <tr><td>{{ g.label }}</td><td>{{ g.members }}명{% if g.members < 2 %} <span class="badge badge-pending">⚠ 1명 — 오타 확인</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
   {% if upload_result.removed_stale %}
   <div class="card">
     🧹 이번 로스터 기준으로 더 이상 유효하지 않고 응답도 없었던 매핑 {{ upload_result.removed_stale|length }}건을 자동으로 정리했습니다.
@@ -147,6 +159,7 @@
 </form>
 
 <h2>결과 내보내기 / 백업</h2>
+<p class="desc">회차 종료 후 서버 데이터를 지우려면 <a href="/admin/purge">백업·삭제·임시 보관</a> 화면에서 <b>최종 백업 ZIP</b>부터 받으세요.</p>
 <p class="desc">리포트 생성 프로그램(app.py)에 바로 업로드할 수 있는 엑셀 형식입니다(현재 회차 데이터만). 백업은 원본 DB 파일을 그대로 내려받습니다(클라우드 정식 배포 전까지의 수동 백업용).</p>
 <a class="btn" href="/admin/export">엑셀 다운로드</a>
 <a class="btn btn-secondary" href="/admin/backup" style="margin-left:8px;">DB 백업 다운로드</a>

@@ -4,6 +4,7 @@
 """
 import os
 import io
+import time
 import secrets
 import datetime
 import requests
@@ -17,6 +18,7 @@ import pandas as pd
 
 import db
 import roster
+import purge
 from questions import RELATION_LABEL, RELATION_DESC
 
 # Slack Client Secret 같은 값은 코드/저장소에 절대 두지 않고, 배포 플랫폼의 환경변수로만 주입한다
@@ -151,6 +153,7 @@ def login_page(request: Request):
 def login_submit(request: Request, employee_id: int = Form(...)):
     """더미 로그인 (Slack 미설정 시에만 사용됨)"""
     request.session["employee_id"] = employee_id
+    request.session["login_at"] = time.time()
     return RedirectResponse("/dashboard", status_code=303)
 
 
@@ -199,6 +202,7 @@ def slack_callback(request: Request, code: str = None, state: str = None, error:
             status_code=403,
         )
     request.session["employee_id"] = emp["id"]
+    request.session["login_at"] = time.time()
     return RedirectResponse("/dashboard", status_code=303)
 
 
@@ -433,7 +437,7 @@ def admin_roster_template(request: Request):
         ["직급", "필수", "직급/호칭 (예: 사원, 대리, 팀장 등)"],
         ["역할", "필수", "'팀원' 또는 '팀장' 중 하나만 입력"],
         ["리더이메일", "선택 (팀원만)", "본인의 팀장 이메일. 복수면 콤마(,)로 구분. 비우면 팀장평가 매핑이 생성되지 않음"],
-        ["동료평가그룹", "선택", "값이 같은 사람끼리 팀 경계 없이 전부 동료평가로 묶임. 비워두면 같은 '그룹+팀'끼리 자동으로 묶임"],
+        ["동료평가그룹", "선택", "태그를 하나라도 공유하는 사람끼리 팀 경계 없이 동료평가로 묶임. 콤마(,)로 여러 개 지정 가능(대소문자·공백 무시). 예) 직속팀 'SOL-N,SOL-E', Network연구실 'SOL-N', Endpoint연구실 'SOL-E' → 직속팀은 양쪽과 평가, Network↔Endpoint는 서로 평가 안 함. 비워두면 같은 '그룹+팀'끼리 자동으로 묶임"],
     ]
     guide_df = pd.DataFrame(guide_rows, columns=["컬럼명", "필수여부", "설명"])
 
@@ -653,6 +657,103 @@ def admin_questions_activate(request: Request, preset_id: int):
     return RedirectResponse("/admin/questions", status_code=303)
 
 
+
+# ---------------------------------------------------------------
+# 관리자 — 최종 백업 / 선택 삭제 / 임시 보관 (purge.py)
+# ---------------------------------------------------------------
+def _fresh_login(request: Request):
+    """삭제 같은 위험 작업은 최근(30분 이내) 로그인한 세션에서만 허용한다."""
+    login_at = request.session.get("login_at")
+    return bool(login_at) and (time.time() - float(login_at)) <= purge.FRESH_LOGIN_SECONDS
+
+
+def _flash(request: Request, ok: bool, msg: str):
+    request.session["flash"] = {"ok": ok, "msg": msg}
+
+
+@app.get("/admin/purge", response_class=HTMLResponse)
+def admin_purge_page(request: Request):
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    purge.cleanup_trash()  # 화면을 열 때도 만료분을 정리
+    current_round = db.get_current_round()
+    return templates.TemplateResponse(request, "purge.html", {
+        "flash": request.session.pop("flash", None),
+        "current_round_name": current_round["name"] if current_round else "-",
+        "counts": purge.scope_counts(),
+        "backup": purge.get_backup_status(),
+        "trash": purge.list_trash(),
+        "fresh_login": _fresh_login(request),
+        "scope_label": purge.SCOPE_LABEL,
+    })
+
+
+@app.post("/admin/purge/backup")
+def admin_purge_backup(request: Request):
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    data, sha = purge.build_backup_zip(user["email"])
+    from urllib.parse import quote
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = quote(f"다면평가_최종백업_{ts}.zip")
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=final_backup_{ts}.zip; filename*=UTF-8''{name}"},
+    )
+
+
+@app.post("/admin/purge/execute")
+async def admin_purge_execute(request: Request):
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    if not _fresh_login(request):
+        _flash(request, False, "보안을 위해 삭제 직전 30분 이내에 다시 로그인해야 합니다. "
+                               "아래 '다시 로그인' 후 다시 시도해주세요.")
+        return RedirectResponse("/admin/purge", status_code=303)
+
+    form = await request.form()
+    ok, msg, relogin = purge.execute_purge(
+        user["email"],
+        scopes=form.getlist("scopes"),
+        typed_round_name=form.get("round_name") or "",
+        typed_count=form.get("response_count") or "",
+    )
+    if ok and relogin:
+        # 인원까지 지웠으면 현재 세션의 계정도 사라지므로 로그아웃시킨다 (관리자 이메일은 재로그인 시 자동 복구됨)
+        request.session.clear()
+        return HTMLResponse(
+            "삭제가 완료되었습니다. 삭제 직전 상태는 24시간 임시 보관됩니다. "
+            "<a href='/login'>다시 로그인</a> 후 관리자 화면 > 삭제·임시 보관에서 확인하세요.")
+    _flash(request, ok, msg)
+    return RedirectResponse("/admin/purge", status_code=303)
+
+
+@app.post("/admin/purge/trash/{trash_id}/restore")
+def admin_trash_restore(request: Request, trash_id: str):
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    ok, msg, relogin = purge.restore_trash(trash_id, user["email"])
+    if ok and relogin:
+        request.session.clear()
+        return HTMLResponse("복구가 완료되었습니다. <a href='/login'>다시 로그인</a>해주세요.")
+    _flash(request, ok, msg)
+    return RedirectResponse("/admin/purge", status_code=303)
+
+
+@app.post("/admin/purge/trash/{trash_id}/delete")
+def admin_trash_delete(request: Request, trash_id: str):
+    user = current_user(request)
+    if not user or not user.get("is_admin"):
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    ok, msg = purge.delete_trash_now(trash_id, user["email"])
+    _flash(request, ok, msg)
+    return RedirectResponse("/admin/purge", status_code=303)
+
 @app.on_event("startup")
 def ensure_admin_account():
     """개발용 더미 로그인 관리자 계정이 없으면 하나 만들어둔다.
@@ -661,3 +762,4 @@ def ensure_admin_account():
     existing = db.get_employee_by_email("admin@local")
     if not existing:
         db.upsert_employee("관리자", "admin@local", "-", "-", "-", "-", "팀장", is_admin=1)
+    purge.start_cleanup_thread()  # 앱 시작 시 만료된 임시 보관본 정리 + 주기적 정리 스레드

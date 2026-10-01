@@ -8,12 +8,39 @@
 
 로스터 선택 컬럼:
   리더이메일        — 팀원만 해당. 콤마로 복수 지정 가능 (예: "a@x.com,b@x.com")
-  동료평가그룹      — 채워두면 '같은 그룹+팀'이 아니라 이 값이 같은 사람들끼리 전부 동료평가로 묶인다.
-                     팀 경계와 무관하게 태그 하나로 교차평가/서브그룹을 만들 수 있다.
-                     (예: A팀·B팀 10명을 교차평가시키고 싶으면 10명 모두에게 같은 태그를 적으면 됨 —
-                     이메일을 서로 여러 개씩 적을 필요가 없다)
+  동료평가그룹      — 채워두면 '같은 그룹+팀'이 아니라 태그를 하나라도 공유하는 사람들끼리 동료평가로 묶인다.
+                     팀 경계와 무관하게 태그로 교차평가/서브그룹을 만들 수 있다.
+                     태그는 콤마(,)로 여러 개 지정할 수 있다. (대소문자·앞뒤 공백은 무시)
+                     예) 직속팀 "SOL-N,SOL-E" / Network연구실 "SOL-N" / Endpoint연구실 "SOL-E"
+                         → 직속팀은 양쪽 모두와 평가, Network↔Endpoint는 서로 평가하지 않음
 """
 import db
+
+
+def _clean(value):
+    """엑셀의 빈 칸(NaN)이 'nan' 문자열이 되지 않도록 빈 문자열로 정리한다."""
+    if value is None:
+        return ""
+    try:
+        if value != value:  # NaN
+            return ""
+    except Exception:  # noqa: BLE001
+        pass
+    return str(value).strip()
+
+
+def parse_tags(raw):
+    """'SOL-N, sol-e' -> ['sol-n', 'sol-e'] (콤마/전각콤마/세미콜론 구분, 대소문자·공백 무시, 중복 제거).
+    표시용 원문 라벨은 별도로 보관한다."""
+    text = _clean(raw).replace("，", ",").replace(";", ",").replace("；", ",")
+    seen, out = set(), []
+    for part in text.split(","):
+        label = " ".join(part.split())
+        key = label.casefold()
+        if key and key not in seen:
+            seen.add(key)
+            out.append((key, label))
+    return out
 
 
 def generate_mappings_from_roster(roster_df):
@@ -32,38 +59,48 @@ def generate_mappings_from_roster(roster_df):
 
     email_to_id = {}
     for _, row in roster_df.iterrows():
-        role = str(row["역할"]).strip()
+        role = _clean(row["역할"])
         if role not in ("팀원", "팀장"):
             errors.append(f"{row['이름']}: 역할 값이 '팀원'/'팀장'이 아님 ({role})")
             continue
         emp_id = db.upsert_employee(
-            name=str(row["이름"]).strip(),
-            email=str(row["이메일"]).strip(),
-            org_group=str(row["그룹"]).strip(),
-            team=str(row["팀"]).strip(),
-            job_family=str(row["직군"]).strip(),
-            grade=str(row["직급"]).strip(),
+            name=_clean(row["이름"]),
+            email=_clean(row["이메일"]),
+            org_group=_clean(row["그룹"]),
+            team=_clean(row["팀"]),
+            job_family=_clean(row["직군"]),
+            grade=_clean(row["직급"]),
             role=role,
         )
-        email_to_id[str(row["이메일"]).strip()] = emp_id
+        email_to_id[_clean(row["이메일"])] = emp_id
 
     if errors:
         return {"ok": False, "errors": errors}
 
-    # 동료평가 그룹핑 키: '동료평가그룹' 태그가 있으면 그 값, 없으면 (그룹, 팀)
-    def peer_key(row):
-        tag = str(row.get("동료평가그룹", "")).strip()
-        if tag:
-            return ("tag", tag)
-        return ("team", str(row["그룹"]).strip(), str(row["팀"]).strip())
+    # 동료평가 그룹핑: '동료평가그룹' 태그(콤마로 복수 가능)를 하나라도 공유하면 동료.
+    # 태그가 없는 팀원은 기존처럼 같은 (그룹, 팀) 전체가 하나의 그룹이 된다.
+    def group_keys(row):
+        tags = parse_tags(row.get("동료평가그룹", ""))
+        if tags:
+            return [("tag", k) for k, _ in tags]
+        return [("team", _clean(row["그룹"]), _clean(row["팀"]))]
 
-    peer_groups = {}
+    peer_groups = {}     # 그룹키 -> [팀원 이메일]
+    group_labels = {}    # 그룹키 -> 화면 표시용 이름
+    member_keys = {}     # 팀원 이메일 -> [그룹키]
     leaders = []
     for _, row in roster_df.iterrows():
-        role = str(row["역할"]).strip()
-        email = str(row["이메일"]).strip()
+        role = _clean(row["역할"])
+        email = _clean(row["이메일"])
         if role == "팀원":
-            peer_groups.setdefault(peer_key(row), []).append(email)
+            keys = group_keys(row)
+            member_keys[email] = keys
+            for key in keys:
+                peer_groups.setdefault(key, []).append(email)
+            for k, label in parse_tags(row.get("동료평가그룹", "")):
+                group_labels.setdefault(("tag", k), label)
+            if keys[0][0] == "team":
+                group_labels.setdefault(keys[0], f"{keys[0][1]} / {keys[0][2]} (팀 자동 묶임)")
         else:
             leaders.append(email)
 
@@ -76,21 +113,24 @@ def generate_mappings_from_roster(roster_df):
 
     # 팀원: 본인평가 + 동료평가(그룹 키 기준) + 팀장평가(팀원이줌)
     for _, row in roster_df.iterrows():
-        role = str(row["역할"]).strip()
+        role = _clean(row["역할"])
         if role != "팀원":
             continue
-        email = str(row["이메일"]).strip()
+        email = _clean(row["이메일"])
 
         add(email, email, "본인평가")
         n_self += 1
 
-        for other_email in peer_groups.get(peer_key(row), []):
-            if other_email == email:
-                continue
+        peers = []  # 여러 그룹에 같이 속한 사람은 한 번만 (순서 유지하며 중복 제거)
+        for key in member_keys.get(email, []):
+            for other_email in peer_groups.get(key, []):
+                if other_email != email and other_email not in peers:
+                    peers.append(other_email)
+        for other_email in peers:
             add(other_email, email, "동료평가")
             n_peer += 1
 
-        leader_emails = [e.strip() for e in str(row.get("리더이메일", "")).split(",") if e.strip()]
+        leader_emails = [e.strip() for e in _clean(row.get("리더이메일", "")).split(",") if e.strip()]
         for le in leader_emails:
             if le not in email_to_id:
                 errors.append(f"{row['이름']}: 리더이메일 '{le}'이 로스터에 없음")
@@ -136,6 +176,10 @@ def generate_mappings_from_roster(roster_df):
             "본인평가(팀장)": n_leader_self,
             "팀장간평가": n_leader_peer,
         },
+        "peer_group_stats": sorted(
+            [{"label": group_labels.get(k, str(k)), "members": len(v)} for k, v in peer_groups.items()],
+            key=lambda x: x["label"],
+        ),
         "removed_stale": removed_stale,
         "kept_with_responses": kept_with_responses,
     }
