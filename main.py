@@ -12,7 +12,7 @@ import secrets
 import datetime
 import requests
 from fastapi import FastAPI, Request, Form, UploadFile, File
-from fastapi.responses import RedirectResponse, StreamingResponse, HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, HTMLResponse, FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
@@ -115,6 +115,45 @@ def current_user(request: Request):
         # 새 회차 계정에 자연스럽게 연결된다.)
         return None
     return emp
+
+
+# --- 마스코트 영상: 구간 요청(Range) 지원 ---------------------------------------
+# 기본 정적 파일 서버(StaticFiles)는 Range 요청을 지원하지 않아, 영상의 특정 구간으로 이동(seek)이 안 되고
+# iOS/Safari 에서는 재생 자체가 안 될 수 있다. 영상 두 개(수백 KB)만 허용 목록으로 직접 서빙한다.
+_MASCOT_MEDIA = {"mascot.mp4": "video/mp4", "mascot.webm": "video/webm"}
+
+
+@app.api_route("/media/mascot/{name}", methods=["GET", "HEAD"])
+def mascot_media(request: Request, name: str):
+    ctype = _MASCOT_MEDIA.get(name)
+    path = os.path.join(STATIC_DIR, "mascot", name) if ctype else None
+    if not ctype or not os.path.isfile(path):
+        return Response(status_code=404)
+    size = os.path.getsize(path)
+    headers = {"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=86400"}
+    start, end, status = 0, size - 1, 200
+    rng = request.headers.get("range")
+    if rng:
+        m = re.match(r"^bytes=(\d*)-(\d*)$", rng.strip())
+        if not m or (not m.group(1) and not m.group(2)):
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        if not m.group(1):                       # 'bytes=-N' : 끝에서 N바이트
+            start = max(size - int(m.group(2)), 0)
+        else:
+            start = int(m.group(1))
+            if m.group(2):
+                end = min(int(m.group(2)), size - 1)
+        if start > end or start >= size:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        status = 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    with open(path, "rb") as f:
+        f.seek(start)
+        data = f.read(end - start + 1)
+    headers["Content-Length"] = str(len(data))
+    if request.method == "HEAD":
+        return Response(status_code=status, media_type=ctype, headers=headers)
+    return Response(content=data, status_code=status, media_type=ctype, headers=headers)
 
 
 def deadline_passed():

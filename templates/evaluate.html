@@ -15,6 +15,7 @@
         <div class="brand-title">다면평가</div>
         <div class="brand-sub">내 평가 목록</div>
       </div>
+      {% set mascot_class = 'mascot--eval' %}{% include "_mascot.html" %}
     </div>
 
     <div class="eval-progress-head">
@@ -201,7 +202,7 @@ form.addEventListener('submit', function(e) {
   if (IS_LOCKED) return;
   e.preventDefault();
   saveNow().then(function(r) {
-    if (r.ok) { var d = describe(r.data); showToast(d.msg, d.kind, d.sub); }
+    if (r.ok) { var d = describe(r.data); showToast(d.msg, d.kind, d.sub); if (window.Mascot) Mascot.cheer(); }
   });
 });
 

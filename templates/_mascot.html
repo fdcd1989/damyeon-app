@@ -1,0 +1,9 @@
+{# 마스코트: 포함하는 쪽에서 {% set mascot_class = 'mascot--eval' %} 처럼 배치 클래스를 지정 #}
+<button type="button" class="mascot {{ mascot_class|default('') }}" id="mascot" aria-label="캐릭터와 인사하기" title="클릭해 보세요!">
+  <img class="mascot-poster" src="/static/mascot/rest.webp" alt="" width="360" height="360" draggable="false">
+  <video class="mascot-video" muted playsinline preload="auto" aria-hidden="true" tabindex="-1" disablepictureinpicture>
+    <source src="/media/mascot/mascot.webm" type="video/webm">
+    <source src="/media/mascot/mascot.mp4" type="video/mp4">
+  </video>
+</button>
+<script src="/static/mascot.js?v=1" defer></script>
