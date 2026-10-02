@@ -62,5 +62,76 @@
   el.addEventListener('click', function () { play('greet'); });
   document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); });
 
+
+  /* ---------- 위치: 평가 화면에서는 두 '자리' 사이를 오간다 ----------
+     home  : 제목 줄 오른쪽 큰 자리 (페이지와 함께 스크롤)
+     dock  : 사이드바 제목 옆 작은 자리 (사이드바는 화면에 고정이라 항상 보임). 큰 자리가 화면 위로 지나가면 이쪽으로 이동
+     mobile: 좁은 화면(≤860px)은 사이드바가 위에 쌓이므로 사이드바 제목 옆에 작게 둔다 */
+  var mainSlot = document.getElementById('mascot-slot-main');
+  var sideSlot = document.getElementById('mascot-slot-side');
+  if (el.classList.contains('mascot--eval') && sideSlot) {
+    var desktopMQ = window.matchMedia('(min-width: 861px)');
+    var state = null, moving = false, moveTimer = null, ticking = false;
+    var DOCK_BELOW = 50, HOME_ABOVE = 130;     // 이동 기준(히스테리시스: 경계에서 깜빡이지 않게)
+
+    var rectOf = function (slot) { return slot.getBoundingClientRect(); };
+    var put = function (mode, r) {
+      var st = el.style;
+      st.position = mode;
+      st.left = (mode === 'fixed' ? r.left : r.left + window.pageXOffset) + 'px';
+      st.top = (mode === 'fixed' ? r.top : r.top + window.pageYOffset) + 'px';
+      st.width = r.width + 'px';
+    };
+    var placed = function () { el.classList.add('is-placed'); };
+    var endMove = function (after) {
+      clearTimeout(moveTimer);
+      moveTimer = setTimeout(function () { moving = false; el.classList.remove('is-gliding'); if (after) after(); }, reduce ? 0 : 420);
+    };
+
+    function glideTo(target, mode, settle) {          // 현재 보이는 자리에서 target 자리로 부드럽게 이동
+      var cur = el.getBoundingClientRect();
+      moving = true;
+      el.classList.remove('is-gliding');
+      put('fixed', cur);                              // 지금 모습 그대로 fixed로 전환(점프 없음)
+      void el.offsetWidth;
+      if (!reduce) el.classList.add('is-gliding');
+      put('fixed', target);
+      endMove(settle);
+    }
+    function layout(animate) {
+      if (!desktopMQ.matches) {                       // 모바일/좁은 화면
+        state = 'mobile'; moving = false; el.classList.remove('is-gliding'); put('absolute', rectOf(sideSlot)); placed(); return;
+      }
+      var home = mainSlot && rectOf(mainSlot);
+      var wantDock = !home || home.bottom < DOCK_BELOW;
+      if (state === 'mobile' || state === null || !animate) {
+        state = wantDock ? 'dock' : 'home';
+        moving = false; el.classList.remove('is-gliding');
+        if (state === 'dock') put('fixed', rectOf(sideSlot)); else put('absolute', home);
+        placed(); return;
+      }
+      if (moving) return;
+      if (state === 'home' && wantDock) {
+        state = 'dock'; glideTo(rectOf(sideSlot), 'fixed', null);
+      } else if (state === 'dock' && home && home.bottom > HOME_ABOVE) {
+        state = 'home';
+        glideTo(rectOf(mainSlot), 'fixed', function () { put('absolute', rectOf(mainSlot)); });
+      } else if (!moving) {                           // 같은 자리 유지: 좌표만 갱신(창 크기 변화 등)
+        if (state === 'dock') put('fixed', rectOf(sideSlot)); else put('absolute', home);
+      }
+    }
+    var onScroll = function () {
+      if (ticking) return; ticking = true;
+      requestAnimationFrame(function () { ticking = false; layout(true); });
+    };
+    var relayout = function () { layout(false); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', relayout);
+    window.addEventListener('load', relayout);
+    if (desktopMQ.addEventListener) desktopMQ.addEventListener('change', relayout);
+    if (window.ResizeObserver) new ResizeObserver(function () { if (!moving) relayout(); }).observe(document.body);
+    relayout();
+  }
+
   window.Mascot = { greet: function () { play('greet'); }, cheer: function () { play('cheer'); } };
 })();

@@ -15,7 +15,7 @@
         <div class="brand-title">다면평가</div>
         <div class="brand-sub">내 평가 목록</div>
       </div>
-      {% set mascot_class = 'mascot--eval' %}{% include "_mascot.html" %}
+      <span class="mascot-slot mascot-slot--side" id="mascot-slot-side" aria-hidden="true"></span>
     </div>
 
     <div class="eval-progress-head">
@@ -63,20 +63,25 @@
       <span class="step" style="color:{{ relation_color }};border-color:{{ relation_color }};">전체 {{ total_count }}건 중 {{ current_index }}번째</span>
     </div>
 
-    <h1 class="eval-title">{{ mapping.target_name }}님 평가</h1>
-    {% if target_info %}
-    <div class="eval-target-meta">
-      {{ target_info.org_group }}<span class="sep">/</span>{{ target_info.team }}<span class="sep">·</span>{{ target_info.job_family }}<span class="sep">·</span>{{ target_info.grade }}{% if target_info.role == '팀장' %}<span class="sep">·</span>팀장{% endif %}
-    </div>
-    {% endif %}
+    <div class="eval-head">
+      <div class="eval-head-left">
+        <h1 class="eval-title">{{ mapping.target_name }}님 평가</h1>
+        {% if target_info %}
+        <div class="eval-target-meta">
+          {{ target_info.org_group }}<span class="sep">/</span>{{ target_info.team }}<span class="sep">·</span>{{ target_info.job_family }}<span class="sep">·</span>{{ target_info.grade }}{% if target_info.role == '팀장' %}<span class="sep">·</span>팀장{% endif %}
+        </div>
+        {% endif %}
 
-    <div class="eval-na-card">
-      <div class="icon">⌀</div>
-      <div class="text">
-        <div class="t1">이 사람과 업무 연관이 없으신가요?</div>
-        <div class="t2">버튼 한 번으로 아래 모든 문항을 N/A로 표시할 수 있습니다</div>
+        <div class="eval-na-card">
+          <div class="icon">⌀</div>
+          <div class="text">
+            <span class="t1">이 사람과 업무 연관이 없으신가요?</span>
+            <span class="t2">버튼 한 번으로 모든 문항을 N/A로 표시</span>
+          </div>
+          <button type="button" onclick="markAllNA()" {% if is_locked %}disabled{% endif %}>전체 N/A로 표시</button>
+        </div>
       </div>
-      <button type="button" onclick="markAllNA()" {% if is_locked %}disabled{% endif %}>전체 N/A로 표시</button>
+      <div class="eval-head-right"><span class="mascot-slot mascot-slot--main" id="mascot-slot-main" aria-hidden="true"></span></div>
     </div>
 
     <form method="post" action="/evaluate/{{ mapping.id }}" id="eval-form">
@@ -124,6 +129,8 @@
     </form>
   </main>
 </div>
+
+{% set mascot_class = 'mascot--eval' %}{% include "_mascot.html" %}
 
 <script>
 var IS_LOCKED = {{ 'true' if is_locked else 'false' }};

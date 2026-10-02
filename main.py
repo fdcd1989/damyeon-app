@@ -648,6 +648,7 @@ def admin_reminders(request: Request, job: str = ""):
         "token_format_ok": (not slack_notify.is_configured()) or slack_notify.token_looks_valid(),
         "rows": rows, "deadline": db.get_setting("deadline"), "is_locked": deadline_passed(),
         "default_template": slack_notify.DEFAULT_TEMPLATE, "placeholders": slack_notify.PLACEHOLDERS,
+        "link_label": slack_notify.LINK_LABEL,
         "job_id": job if job and slack_notify.job_snapshot(job) else "",
         "running": bool(slack_notify.running_job()),
     })

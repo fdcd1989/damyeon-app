@@ -82,7 +82,8 @@
 <h2>메시지</h2>
 <div class="card">
   <div style="font-size:12.5px;color:var(--gray);margin-bottom:6px;">
-    사용 가능한 자리표시자(사람마다 자동으로 채워집니다): {% for p in placeholders %}<code>{{ p }}</code> {% endfor %}
+    사용 가능한 자리표시자(사람마다 자동으로 채워집니다): {% for p in placeholders %}<code>{{ p }}</code> {% endfor %}<br>
+    <code>{접속링크}</code> 는 "{{ link_label }}" 글자를 누르면 접속되는 <b>하이퍼링크</b>로, <code>{링크}</code> 는 주소 글자 그대로 들어갑니다. 직접 쓴 <code>&lt;주소|글자&gt;</code> 형식은 링크로 동작하지 않습니다.
   </div>
   <textarea name="message" id="msg" rows="7" style="width:100%;font-family:inherit;">{{ default_template }}</textarea>
   <div style="font-size:12.5px;color:var(--gray);margin:10px 0 4px;">미리보기 <span id="pv-who"></span></div>
@@ -114,7 +115,12 @@ function updatePreview(){
   var t = document.getElementById('msg').value;
   var map = {'{이름}': name, '{남은건수}': String(Math.max(total-done,0)), '{완료건수}': String(done), '{전체건수}': String(total), '{마감일}': deadline, '{링크}': link};
   Object.keys(map).forEach(function(k){ t = t.split(k).join(map[k]); });
-  document.getElementById('preview').textContent = t;
+  // {접속링크} 는 슬랙에서처럼 '누르는 글자'로 보여준다 (미리보기에서 실제 이동하지는 않음)
+  var box = document.getElementById('preview'); box.textContent = '';
+  t.split('{접속링크}').forEach(function(part, i){
+    if (i > 0) { var a = document.createElement('span'); a.textContent = {{ link_label|tojson }}; a.style.cssText = 'color:#1264A3;text-decoration:underline;'; a.title = link; box.appendChild(a); }
+    box.appendChild(document.createTextNode(part));
+  });
   document.getElementById('pv-who').textContent = first ? '(' + name + '님 기준)' : '(예시)';
 }
 document.getElementById('msg').addEventListener('input', updatePreview);

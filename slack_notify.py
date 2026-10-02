@@ -24,14 +24,16 @@ SEND_INTERVAL = 1.3          # 사람 사이 대기(초). 조회+발송 2회 호
 DUP_WINDOW = datetime.timedelta(hours=24)
 MAX_MESSAGE_LEN = 1500
 
+LINK_LABEL = "다면평가 접속하기"
 DEFAULT_TEMPLATE = (
     "[다면평가 알림] {이름}님, 다면평가가 아직 {남은건수}건 남아 있어요 🙏\n"
     "진행 현황: {완료건수}/{전체건수}건 완료\n"
     "마감일: {마감일}\n"
-    "접속: {링크}\n"
+    "👉 {접속링크}\n"
     "※ 이 메시지는 다면평가 알림봇이 발송했습니다. 문의: 인사총무팀"
 )
-PLACEHOLDERS = ["{이름}", "{남은건수}", "{완료건수}", "{전체건수}", "{마감일}", "{링크}"]
+# {접속링크} = 누르면 접속되는 하이퍼링크(글자는 LINK_LABEL 고정), {링크} = 주소 글자 그대로
+PLACEHOLDERS = ["{이름}", "{남은건수}", "{완료건수}", "{전체건수}", "{마감일}", "{접속링크}", "{링크}"]
 
 ERROR_KO = {
     "users_not_found": "Slack에서 이 이메일 계정을 찾지 못했습니다 (로스터 이메일과 Slack 가입 이메일이 다를 수 있음)",
@@ -172,15 +174,19 @@ def slack_escape(value):
 
 
 def render_message(template, name, done, total, deadline, link):
+    """자리표시자를 채워 Slack 메시지 문자열을 만든다.
+    순서가 중요하다: ① 관리자가 쓴 본문의 & < > 를 먼저 무력화(직접 쓴 <주소|글자> 링크나 멘션이 동작하지 않게)
+    ② 그 뒤에 우리가 만드는 링크 서식(<주소|글자>)을 넣는다. 그래서 하이퍼링크는 {접속링크}로만 만들어진다."""
+    out = slack_escape(template)
     values = {
         "{이름}": slack_escape(name),
         "{남은건수}": str(max(total - done, 0)),
         "{완료건수}": str(done),
         "{전체건수}": str(total),
-        "{마감일}": deadline or "미정",
-        "{링크}": link,
+        "{마감일}": slack_escape(deadline or "미정"),
+        "{접속링크}": f"<{link}|{LINK_LABEL}>",
+        "{링크}": slack_escape(link),
     }
-    out = template
     for k, v in values.items():
         out = out.replace(k, v)
     return out
