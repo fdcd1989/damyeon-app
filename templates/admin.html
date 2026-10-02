@@ -5,6 +5,7 @@
   <a href="/dashboard">← 내 대시보드로</a> &nbsp;|&nbsp;
   <a href="/admin/questions">문항 관리</a> &nbsp;|&nbsp;
   <a href="/admin/mappings">매핑 점검</a> &nbsp;|&nbsp;
+  <a href="/admin/reminders">슬랙 리마인드</a> &nbsp;|&nbsp;
   <a href="/admin/history">평가 이력 조회</a> &nbsp;|&nbsp;
   <a href="/admin/purge" style="color:var(--red);">백업·삭제·임시 보관</a>
   &nbsp;·&nbsp; <span style="color:var(--gray);">현재 회차: <b>{{ current_round_name }}</b></span>
@@ -124,7 +125,8 @@
 {% if incomplete %}
 <div class="card">
   <div class="desc" style="margin-bottom:0;">
-    아래 내용을 복사해서 슬랙 DM/채널에 직접 붙여넣어 리마인드하세요. (자동 발송 기능은 추후 추가 예정)
+    <a class="btn" href="/admin/reminders" style="display:inline-block;margin-bottom:8px;">💬 슬랙으로 발송하기 (대상 선택)</a><br>
+    슬랙 봇 연결 전이거나 직접 안내하려면, 아래 내용을 복사해서 슬랙 DM/채널에 붙여넣으세요.
   </div>
   <textarea id="reminder-text" class="reminder-box" readonly>다면평가 미완료 안내드립니다. 아래 분들은 아직 평가가 남아있어요 🙏
 접속 링크: {{ site_url }}/login

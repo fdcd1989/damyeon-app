@@ -3,6 +3,7 @@
 인증: Slack 관련 환경변수(SLACK_CLIENT_ID 등)가 채워져 있으면 실제 Slack 로그인(OIDC), 비어있으면 더미(이름 선택) 로그인.
 """
 import os
+import re
 from collections import defaultdict
 import io
 import time
@@ -22,6 +23,7 @@ import db
 import roster
 import purge
 import audit
+import slack_notify
 from questions import RELATION_LABEL, RELATION_DESC
 
 # Slack Client Secret 같은 값은 코드/저장소에 절대 두지 않고, 배포 플랫폼의 환경변수로만 주입한다
@@ -408,6 +410,18 @@ async def evaluate_autosave(request: Request, mapping_id: int):
 # ---------------------------------------------------------------
 # 관리자
 # ---------------------------------------------------------------
+def _public_base_url(request: Request):
+    """사용자에게 보여줄 접속 주소. 프록시 뒤에서 http 로 잡혀도 운영 도메인은 https 로 안내한다.
+    환경변수 PUBLIC_BASE_URL 이 있으면 그 값을 우선 사용."""
+    env = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if env:
+        return env
+    base = str(request.base_url).rstrip("/")
+    if base.startswith("http://") and not re.match(r"http://(localhost|127\.|0\.0\.0\.0)", base):
+        base = "https://" + base[len("http://"):]
+    return base
+
+
 def _admin_context(request: Request):
     """관리자 화면(admin.html)이 GET/업로드 두 경로에서 공통으로 필요로 하는 컨텍스트."""
     current_round = db.get_current_round()
@@ -416,7 +430,7 @@ def _admin_context(request: Request):
         "overall": db.overall_completion(),
         "org_stats": db.completion_by_org(),
         "incomplete": db.incomplete_writers(),
-        "site_url": str(request.base_url).rstrip("/"),
+        "site_url": _public_base_url(request),
         "deadline": db.get_setting("deadline"),
         "is_locked": deadline_passed(),
         "access_logs": db.recent_access_logs(20),
@@ -563,6 +577,120 @@ async def admin_upload_roster_cancel(request: Request):
     if pend:
         _pending_drop(form.get("token"))
     return RedirectResponse("/admin", status_code=303)
+
+
+# --- 미완료자 슬랙 리마인드 -------------------------------------------------
+def _admin_or_none(request: Request):
+    user = current_user(request)
+    return user if user and user.get("is_admin") else None
+
+
+@app.get("/admin/reminders", response_class=HTMLResponse)
+def admin_reminders(request: Request, job: str = ""):
+    user = _admin_or_none(request)
+    if not user:
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    emps = {e["email"].lower(): e for e in db.list_employees()}
+    last = slack_notify.last_reminders()
+    recent = slack_notify.recently_sent_emails()
+    rows = []
+    for w in db.incomplete_writers():
+        key = w["email"].lower()
+        e = emps.get(key, {})
+        lr = last.get(key)
+        rows.append({**w, "org_group": e.get("org_group", ""), "team": e.get("team", ""),
+                     "recent": key in recent,
+                     "last_status": lr["status"] if lr else None,
+                     "last_error": slack_notify.describe_error(lr["error"]) if lr and lr["error"] else "",
+                     "last_at": purge.to_kst(lr["sent_at"]) if lr else ""})
+    return templates.TemplateResponse(request, "reminders.html", {
+        "flash": request.session.pop("flash", None),
+        "status": slack_notify.connection_status(),
+        "token_format_ok": (not slack_notify.is_configured()) or slack_notify.token_looks_valid(),
+        "rows": rows, "deadline": db.get_setting("deadline"), "is_locked": deadline_passed(),
+        "default_template": slack_notify.DEFAULT_TEMPLATE, "placeholders": slack_notify.PLACEHOLDERS,
+        "job_id": job if job and slack_notify.job_snapshot(job) else "",
+        "running": bool(slack_notify.running_job()),
+    })
+
+
+@app.post("/admin/reminders/send")
+async def admin_reminders_send(request: Request):
+    user = _admin_or_none(request)
+    if not user:
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    form = await request.form()
+
+    def back(msg, ok=False, job=None):
+        request.session["flash"] = {"ok": ok, "msg": msg}
+        return RedirectResponse("/admin/reminders" + (f"?job={job}" if job else ""), status_code=303)
+
+    if deadline_passed():
+        return back("평가 마감일이 지나 발송할 수 없습니다. 마감일을 연장하면 다시 발송할 수 있습니다.")
+    if not slack_notify.is_configured():
+        return back("Slack 봇 토큰(SLACK_BOT_TOKEN)이 설정되지 않아 발송할 수 없습니다.")
+    template = form.get("message") or ""
+    err = slack_notify.validate_template(template)
+    if err:
+        return back(err)
+    if slack_notify.running_job():
+        return back("이미 발송 중인 작업이 있습니다. 끝난 뒤 다시 시도해주세요.")
+
+    wanted = {e.strip().lower() for e in form.getlist("emails") if e.strip()}
+    incomplete = {w["email"].lower(): w for w in db.incomplete_writers()}   # 서버에서 다시 계산: 지금도 미완료인 사람만
+    targets = [incomplete[e] for e in wanted if e in incomplete]
+    skipped = len(wanted) - len(targets)
+    if not targets:
+        return back("발송 대상이 없습니다. (선택한 사람이 없거나 이미 모두 완료했습니다)")
+    if len(targets) > 300:
+        return back("한 번에 300명까지만 발송할 수 있습니다.")
+    recent = slack_notify.recently_sent_emails()
+    dup = [t for t in targets if t["email"].lower() in recent]
+    if dup and form.get("dup_ok") != "1":
+        return back(f"24시간 안에 이미 발송한 {len(dup)}명이 포함되어 있어 발송하지 않았습니다. 확인 후 다시 발송해주세요.")
+
+    targets.sort(key=lambda t: (-t["remaining"], t["name"]))
+    job_id = slack_notify.start_job(user["email"], targets, template, db.get_setting("deadline"),
+                                    _public_base_url(request) + "/login")
+    db.log_access(user["email"], "슬랙 리마인드 발송 시작", detail=f"대상 {len(targets)}명" + (f" (이미 완료한 {skipped}명 제외)" if skipped else ""))
+    return back(f"{len(targets)}명에게 발송을 시작했습니다." + (f" (이미 완료해 제외된 {skipped}명)" if skipped else ""), ok=True, job=job_id)
+
+
+@app.post("/admin/reminders/test")
+async def admin_reminders_test(request: Request):
+    """실제 대량 발송 전에 내 슬랙 DM으로 미리 받아본다."""
+    user = _admin_or_none(request)
+    if not user:
+        return HTMLResponse("관리자만 접근 가능합니다.", status_code=403)
+    form = await request.form()
+
+    def back(msg, ok):
+        request.session["flash"] = {"ok": ok, "msg": msg}
+        return RedirectResponse("/admin/reminders", status_code=303)
+
+    if not slack_notify.is_configured():
+        return back("Slack 봇 토큰(SLACK_BOT_TOKEN)이 설정되지 않았습니다.", False)
+    template = form.get("message") or ""
+    err = slack_notify.validate_template(template)
+    if err:
+        return back(err, False)
+    text = "🧪 [테스트 발송 — 실제 대상자에게는 가지 않았습니다]\n" + slack_notify.render_message(
+        template, user["name"], 0, 3, db.get_setting("deadline"), _public_base_url(request) + "/login")
+    ok, e = slack_notify.send_dm(user["email"], text)
+    slack_notify.log_result("test", user["email"], user["name"], "test" if ok else "failed", e, user["email"])
+    if ok:
+        return back(f"{user['email']} 의 슬랙 DM으로 테스트 메시지를 보냈습니다. 슬랙에서 확인해보세요.", True)
+    return back(f"테스트 발송 실패: {slack_notify.describe_error(e)}", False)
+
+
+@app.get("/admin/reminders/job/{job_id}")
+def admin_reminders_job(request: Request, job_id: str):
+    if not _admin_or_none(request):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    snap = slack_notify.job_snapshot(job_id)
+    if not snap:
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    return JSONResponse(snap)
 
 
 # --- 매핑 점검 화면 --------------------------------------------------------
@@ -976,4 +1104,5 @@ def ensure_admin_account():
     existing = db.get_employee_by_email("admin@local")
     if not existing:
         db.upsert_employee("관리자", "admin@local", "-", "-", "-", "-", "팀장", is_admin=1)
+    slack_notify.ensure_tables()
     purge.start_cleanup_thread()  # 앱 시작 시 만료된 임시 보관본 정리 + 주기적 정리 스레드

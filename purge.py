@@ -24,6 +24,7 @@ import threading
 import datetime
 
 import db
+import slack_notify
 
 TRASH_DIR = os.path.join(os.path.dirname(db.DB_PATH), "trash")
 TRASH_TTL = datetime.timedelta(hours=24)
@@ -334,6 +335,7 @@ def execute_purge(admin_email, scopes, typed_round_name, typed_count):
             return False, f"임시 보관본을 만들지 못해 삭제를 중단했습니다(데이터는 그대로입니다): {e}", False
 
         # --- 하나의 트랜잭션으로 삭제 ---
+        slack_notify.ensure_tables()  # 트랜잭션 시작 전에 (오래된 DB에 발송 기록 테이블이 없을 수 있음)
         conn = db.get_conn()
         conn.isolation_level = None  # 명시적 BEGIN/COMMIT
         try:
@@ -341,6 +343,7 @@ def execute_purge(admin_email, scopes, typed_round_name, typed_count):
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("BEGIN IMMEDIATE")
             if "history" in scopes:
+                conn.execute("DELETE FROM reminder_log WHERE round_id<>?", (rid,))
                 conn.execute("DELETE FROM responses WHERE mapping_id IN "
                              "(SELECT id FROM mappings WHERE round_id<>?)", (rid,))
                 conn.execute("DELETE FROM mappings WHERE round_id<>?", (rid,))
@@ -353,6 +356,7 @@ def execute_purge(admin_email, scopes, typed_round_name, typed_count):
             if "mappings" in scopes:
                 conn.execute("DELETE FROM mappings WHERE round_id=?", (rid,))
             if "employees" in scopes:
+                conn.execute("DELETE FROM reminder_log WHERE round_id=?", (rid,))
                 conn.execute("DELETE FROM employees WHERE round_id=?", (rid,))
             conn.execute("COMMIT")
         except Exception as e:  # noqa: BLE001

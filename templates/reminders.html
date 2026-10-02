@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>미완료자 슬랙 리마인드</h1>
+<p class="desc"><a href="/admin">← 관리자로</a> &nbsp;·&nbsp; 발송 대상을 직접 골라 슬랙 DM으로 알립니다. 메시지에는 <b>남은 건수만</b> 들어가고, 누구를 아직 평가하지 않았는지는 들어가지 않습니다.</p>
+
+{% if flash %}
+<div class="card" style="{% if flash.ok %}background:var(--greenbg);border-color:var(--green);{% else %}background:#FBEDED;border-color:var(--red);{% endif %}">{{ flash.msg }}</div>
+{% endif %}
+
+{# --- 연결 상태 --- #}
+{% if not status.configured %}
+<div class="card" style="background:#FBEDED;border-color:var(--red);">
+  <b>🔌 슬랙 봇이 아직 연결되지 않았습니다.</b>
+  <ol style="margin:8px 0 0;padding-left:20px;font-size:13px;line-height:1.8;">
+    <li>Slack 앱(Review Notice Bot) → <b>OAuth &amp; Permissions</b> 에서 Bot Token Scopes(<code>chat:write</code>, <code>users:read</code>, <code>users:read.email</code>)를 확인하고 <b>Install to Workspace</b>(권한을 바꿨다면 Reinstall)</li>
+    <li>같은 화면의 <b>Bot User OAuth Token</b>(<code>xoxb-</code> 로 시작)을 복사</li>
+    <li>Railway → 서비스 → <b>Variables</b> 에 <code>SLACK_BOT_TOKEN</code> 으로 추가 (코드·GitHub·채팅에는 절대 붙여넣지 마세요)</li>
+    <li>재배포가 끝나면 이 화면에 "연결됨"이 표시됩니다</li>
+  </ol>
+</div>
+{% elif not token_format_ok %}
+<div class="card" style="background:#FBEDED;border-color:var(--red);">⚠ <code>SLACK_BOT_TOKEN</code> 값이 <code>xoxb-</code> 로 시작하지 않습니다. 봇 토큰(Bot User OAuth Token)이 맞는지 확인하세요. (Signing Secret·Client Secret 등 다른 값이 들어갔을 수 있습니다)</div>
+{% elif status.ok %}
+<div class="card" style="background:var(--greenbg);border-color:var(--green);">✅ 슬랙 연결됨 · 봇 <b>{{ status.bot }}</b> · 워크스페이스 <b>{{ status.team }}</b></div>
+{% else %}
+<div class="card" style="background:#FBEDED;border-color:var(--red);">❌ 슬랙 연결 확인 실패 — {{ status.error }}</div>
+{% endif %}
+
+{% if is_locked %}
+<div class="card" style="background:var(--amberbg);border-color:var(--amberborder);">
+  🔒 평가 마감일({{ deadline }})이 지나 <b>발송할 수 없습니다.</b> 마감을 연장하면 평가자도 다시 평가할 수 있고, 이 화면도 다시 사용할 수 있습니다. → <a href="/admin">관리자 화면에서 마감일 변경</a>
+</div>
+{% endif %}
+
+{# --- 발송 진행 --- #}
+{% if job_id %}
+<div class="card" id="job-card" style="border:2px solid var(--blue);">
+  <div style="font-weight:700;margin-bottom:6px;" id="job-title">발송 중… 이 화면을 닫아도 발송은 계속됩니다.</div>
+  <div class="progress-mini"><div id="job-bar" style="width:0%;"></div></div>
+  <div style="font-size:13px;margin-top:6px;" id="job-count">준비 중…</div>
+  <div id="job-result" style="margin-top:10px;font-size:13px;"></div>
+</div>
+{% endif %}
+
+{# --- 대상 선택 + 메시지 --- #}
+<form method="post" action="/admin/reminders/send" id="remind-form">
+<h2>발송 대상 <span style="font-size:13px;font-weight:400;color:var(--gray);">· 미완료 {{ rows|length }}명</span></h2>
+{% if rows %}
+<div class="card">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+    <button type="button" class="btn btn-secondary" onclick="selectBy(function(){return true;})">전체 선택</button>
+    <button type="button" class="btn btn-secondary" onclick="selectBy(function(){return false;})">선택 해제</button>
+    <button type="button" class="btn btn-secondary" onclick="selectBy(function(r){return r.dataset.recent!=='1';})">24시간 내 미발송자만</button>
+    <button type="button" class="btn btn-secondary" onclick="selectBy(function(r){return r.dataset.failed==='1';})">발송 실패자만</button>
+    <span style="font-size:13px;color:var(--gray);margin-left:auto;">선택 <b id="sel-count">0</b>명</span>
+  </div>
+  <div style="overflow-x:auto;">
+  <table id="remind-table">
+    <tr><th style="width:36px;"></th><th>이름</th><th>그룹 / 팀</th><th>진행</th><th>남은</th><th>마지막 발송</th></tr>
+    {% for r in rows %}
+    <tr data-recent="{{ '1' if r.recent else '0' }}" data-failed="{{ '1' if r.last_status == 'failed' else '0' }}"
+        data-name="{{ r.name }}" data-done="{{ r.done }}" data-total="{{ r.total }}">
+      <td><input type="checkbox" name="emails" value="{{ r.email }}" class="rowchk"></td>
+      <td>{{ r.name }}<div style="font-size:11.5px;color:var(--gray);">{{ r.email }}</div></td>
+      <td>{{ r.org_group }} / {{ r.team }}</td>
+      <td>{{ r.done }}/{{ r.total }}</td>
+      <td><b>{{ r.remaining }}</b>건</td>
+      <td style="font-size:12.5px;">
+        {% if r.last_status == 'sent' %}<span style="color:var(--green);">✔ {{ r.last_at }}</span>{% if r.recent %} <span class="badge badge-pending">24시간 내</span>{% endif %}
+        {% elif r.last_status == 'failed' %}<span style="color:var(--red);">✘ 실패 {{ r.last_at }}</span><div style="color:var(--gray);">{{ r.last_error }}</div>
+        {% else %}<span style="color:#9CA3AF;">미발송</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="card" style="background:var(--greenbg);border-color:var(--green);">🎉 미완료자가 없습니다.</div>
+{% endif %}
+
+<h2>메시지</h2>
+<div class="card">
+  <div style="font-size:12.5px;color:var(--gray);margin-bottom:6px;">
+    사용 가능한 자리표시자(사람마다 자동으로 채워집니다): {% for p in placeholders %}<code>{{ p }}</code> {% endfor %}
+  </div>
+  <textarea name="message" id="msg" rows="7" style="width:100%;font-family:inherit;">{{ default_template }}</textarea>
+  <div style="font-size:12.5px;color:var(--gray);margin:10px 0 4px;">미리보기 <span id="pv-who"></span></div>
+  <div id="preview" style="white-space:pre-wrap;background:var(--panel);border-radius:8px;padding:10px 12px;font-size:13.5px;"></div>
+  <input type="hidden" name="dup_ok" id="dup_ok" value="0">
+  <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button type="submit" class="btn btn-secondary" formaction="/admin/reminders/test" onclick="return confirm('내 슬랙 DM으로 테스트 메시지를 보냅니다.');">🧪 나에게 테스트 발송</button>
+    <button type="submit" class="btn" id="send-btn" {% if is_locked or running or not rows or not status.configured or not token_format_ok %}disabled style="background:#C9CED6;cursor:not-allowed;"{% endif %}>📨 선택한 사람에게 슬랙 발송</button>
+  </div>
+  {% if running %}<div style="font-size:12.5px;color:var(--gray);margin-top:6px;">발송 중인 작업이 있어 새 발송은 끝난 뒤에 가능합니다.</div>{% endif %}
+  <div style="font-size:12px;color:var(--gray);margin-top:10px;">
+    ※ 처음 발송하기 전에 임직원에게 "다면평가 알림봇 이름으로 슬랙 DM이 갑니다"를 한 번 공지하면 피싱 오해를 줄일 수 있습니다.<br>
+    ※ 로스터 이메일과 슬랙 가입 이메일이 다르면 해당 사람은 실패로 표시됩니다. 실패자는 위 표에 사유가 남고, 수동 안내가 필요합니다.
+  </div>
+</div>
+</form>
+
+<script>
+var rows = function(){ return Array.prototype.slice.call(document.querySelectorAll('#remind-table tr[data-name]')); };
+function refreshCount(){ var n = document.querySelectorAll('.rowchk:checked').length; document.getElementById('sel-count').textContent = n; updatePreview(); }
+function selectBy(fn){ rows().forEach(function(r){ r.querySelector('.rowchk').checked = !!fn(r); }); refreshCount(); }
+document.querySelectorAll('.rowchk').forEach(function(c){ c.addEventListener('change', refreshCount); });
+
+function updatePreview(){
+  var first = null;
+  rows().forEach(function(r){ if(!first && r.querySelector('.rowchk').checked) first = r; });
+  var name = first ? first.dataset.name : '홍길동', done = first ? +first.dataset.done : 0, total = first ? +first.dataset.total : 3;
+  var deadline = {{ (deadline or '미정')|tojson }}, link = location.origin.replace(/^http:/, location.hostname === 'localhost' ? 'http:' : 'https:') + '/login';
+  var t = document.getElementById('msg').value;
+  var map = {'{이름}': name, '{남은건수}': String(Math.max(total-done,0)), '{완료건수}': String(done), '{전체건수}': String(total), '{마감일}': deadline, '{링크}': link};
+  Object.keys(map).forEach(function(k){ t = t.split(k).join(map[k]); });
+  document.getElementById('preview').textContent = t;
+  document.getElementById('pv-who').textContent = first ? '(' + name + '님 기준)' : '(예시)';
+}
+document.getElementById('msg').addEventListener('input', updatePreview);
+
+document.getElementById('remind-form').addEventListener('submit', function(e){
+  var btn = e.submitter;
+  if (!btn || btn.id !== 'send-btn') return;          // 테스트 발송은 자체 확인창 사용
+  var chk = document.querySelectorAll('.rowchk:checked');
+  if (!chk.length) { alert('발송할 사람을 선택해주세요.'); e.preventDefault(); return; }
+  var recent = 0; chk.forEach(function(c){ if (c.closest('tr').dataset.recent === '1') recent++; });
+  var msg = chk.length + '명에게 슬랙 DM을 발송합니다.' + (recent ? '\n\n⚠ 24시간 안에 이미 발송한 ' + recent + '명이 포함되어 있습니다. 그래도 다시 보낼까요?' : '') + '\n\n계속할까요?';
+  if (!confirm(msg)) { e.preventDefault(); return; }
+  document.getElementById('dup_ok').value = recent ? '1' : '0';
+});
+refreshCount();
+
+{% if job_id %}
+(function(){
+  var JOB = {{ job_id|tojson }};
+  function esc(s){ var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function poll(){
+    fetch('/admin/reminders/job/' + JOB, {credentials:'same-origin'}).then(function(r){ return r.json(); }).then(function(d){
+      if (d.error) { document.getElementById('job-count').textContent = '진행 정보를 찾을 수 없습니다(서버가 재시작됐을 수 있음). 아래 표의 "마지막 발송"에서 확인하세요.'; return; }
+      var pct = d.total ? Math.round(d.done / d.total * 100) : 0;
+      document.getElementById('job-bar').style.width = pct + '%';
+      document.getElementById('job-count').textContent = d.done + ' / ' + d.total + '명 처리 · 성공 ' + d.ok + ' · 실패 ' + d.fail;
+      if (d.status !== 'done') { setTimeout(poll, 1500); return; }
+      document.getElementById('job-title').textContent = d.aborted ? '⚠ 발송이 중단되었습니다' : '✅ 발송 완료';
+      var html = '';
+      if (d.aborted) html += '<div style="color:var(--red);margin-bottom:6px;"><b>' + esc(d.aborted) + '</b><br>처리하지 못한 사람은 아직 발송되지 않았습니다. 원인을 해결한 뒤 다시 발송하세요.</div>';
+      var fails = d.results.filter(function(r){ return !r.ok; });
+      if (fails.length) {
+        html += '<b style="color:var(--red);">실패 ' + fails.length + '명</b><ul style="margin:4px 0;padding-left:18px;">' +
+          fails.map(function(r){ return '<li>' + esc(r.name) + ' (' + esc(r.email) + ') — ' + esc(r.error) + '</li>'; }).join('') + '</ul>';
+      }
+      html += '<a class="btn btn-secondary" href="/admin/reminders">표 새로고침</a>';
+      document.getElementById('job-result').innerHTML = html;
+    }).catch(function(){ setTimeout(poll, 3000); });
+  }
+  poll();
+})();
+{% endif %}
+</script>
+{% endblock %}
