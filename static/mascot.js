@@ -9,6 +9,7 @@
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var SEG = { greet: [0.0, 4.0], cheer: [7.2, 9.8] };
   var REST = '/static/mascot/rest.webp', HAPPY = '/static/mascot/happy.webp';
+  var intro = (el.dataset.intro === 'cheer') ? 'cheer' : 'greet';   // 대시보드: 모두 완료한 사람에게는 처음부터 축하 장면
   var ready = false, token = 0, rafId = null, restTimer = null;
 
   function setPlaying(on) { el.classList.toggle('is-playing', on); }
@@ -52,14 +53,14 @@
   function onReady() {
     if (ready) return;
     ready = true;
-    if (!started) { started = true; play('greet'); }
+    if (!started) { started = true; play(intro); }
   }
   video.addEventListener('canplay', onReady);
   video.addEventListener('error', function () { ready = false; setPlaying(false); });
   if (video.readyState >= 3) onReady();
   setTimeout(function () { if (!started) { started = true; /* 로딩이 늦으면 정지 그림만 유지 */ } }, 4000);
 
-  el.addEventListener('click', function () { play('greet'); });
+  el.addEventListener('click', function () { play(intro); });
   document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); });
 
 

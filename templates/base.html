@@ -218,6 +218,35 @@
   #toast.error { background: var(--red); }
   #toast .sub { display: block; font-size: 13px; font-weight: 500; opacity: .95; margin-top: 3px; }
 
+  /* ---- 대시보드 ---- */
+  .badge-wait { background: #EEF0F4; color: #7B8494; }
+  .dash-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+  .dash-hero > div:first-child { min-width: 0; }
+  .dash-hero h1 { margin-bottom: 4px; }
+  .dash-desc { word-break: keep-all; }
+  .dash-desc a { white-space: nowrap; }
+  .mascot.mascot--dash { width: 112px; margin: 0 6px -6px 0; }
+  .dash-bubble { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+                 background: #EEF6E7; border: 1px solid #CFE3BD; border-radius: 14px; padding: 12px 16px; margin: 6px 0 18px; }
+  .dash-bubble::before { content: ""; position: absolute; top: -8px; right: 54px; width: 14px; height: 14px; background: #EEF6E7;
+                         border-left: 1px solid #CFE3BD; border-top: 1px solid #CFE3BD; transform: rotate(45deg); }
+  .dash-bubble .msg { font-size: 15px; font-weight: 700; color: #2F5A12; }
+  .dash-bubble .sub { display: block; font-size: 12.5px; font-weight: 600; color: #B7791F; margin-top: 2px; }
+  .dash-bubble--locked { background: var(--panel); border-color: var(--border); }
+  .dash-bubble--locked::before { background: var(--panel); border-color: var(--border); }
+  .dash-bubble--locked .msg { color: var(--navy); }
+  .dash-bubble .btn-continue { background: var(--navy); color: #fff; text-decoration: none; font-size: 13.5px; font-weight: 700;
+                               padding: 9px 16px; border-radius: 8px; white-space: nowrap; }
+  .dash-bubble .btn-continue:hover { background: var(--blue); }
+  .dash-progress { margin: -6px 0 20px; }
+  .dash-progress .row { display: flex; justify-content: space-between; font-size: 12px; color: var(--gray); }
+  .dash-progress .progress-mini { height: 8px; }
+  @media (max-width: 520px) {
+    .mascot.mascot--dash { width: 80px; }
+    .dash-bubble::before { right: 34px; }
+    .dash-bubble .btn-continue { width: 100%; text-align: center; }
+  }
+
   /* ---- 마스코트 ---- */
   .mascot { display: block; position: relative; padding: 0; border: 0; background: transparent; cursor: pointer;
             width: 140px; aspect-ratio: 1; flex-shrink: 0; mix-blend-mode: multiply; -webkit-tap-highlight-color: transparent; }

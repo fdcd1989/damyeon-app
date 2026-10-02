@@ -257,6 +257,56 @@ def logout(request: Request):
 
 
 # ---------------------------------------------------------------
+_KST = datetime.timezone(datetime.timedelta(hours=9))
+
+
+def _dash_summary(mine, deadline_str, locked):
+    """대시보드 상단에 보여줄 말풍선 문구와 '이어서 평가하기' 대상을 계산한다. 본인 진행 건수만 사용한다."""
+    total = len(mine)
+    done = sum(1 for m in mine if m["done"])
+    partial = sum(1 for m in mine if not m["done"] and m["answered"] > 0)
+    remaining = total - done
+
+    days_left = None
+    if deadline_str and not locked:
+        try:
+            days_left = (datetime.date.fromisoformat(deadline_str) - datetime.datetime.now(_KST).date()).days
+        except ValueError:
+            days_left = None
+    sub = ""
+    if days_left is not None and remaining:
+        if days_left <= 0:
+            sub = "⏰ 오늘 마감이에요"
+        elif days_left <= 3:
+            sub = f"⏰ 마감까지 D-{days_left}"
+
+    if locked:
+        text, tone, intro = "평가가 마감되었어요. 참여해 주셔서 감사합니다 🙏", "locked", "greet"
+    elif total == 0:
+        text, tone, intro = "아직 배정된 평가가 없어요.", "start", "greet"
+    elif remaining == 0:
+        text, tone, intro = "모두 끝났어요! 고생하셨습니다 🎉", "done", "cheer"
+    elif done == 0 and partial == 0:
+        text, tone, intro = f"안녕하세요! 평가 {total}건이 기다리고 있어요 👋", "start", "greet"
+    else:
+        text, tone, intro = f"{done}건 완료! {remaining}건 남았어요, 조금만 더 힘내요 💪", "progress", "greet"
+
+    return {"text": text, "sub": sub, "tone": tone, "intro": intro, "total": total, "done": done,
+            "progress_pct": round(done / total * 100) if total else 0}
+
+
+def _dash_deadline_label(deadline_str):
+    """통계 칸에 보여줄 마감 표시: {'date': '10/10', 'tail': 'D-3' | '오늘 마감' | ''} (미설정이면 None)"""
+    if not deadline_str:
+        return None
+    try:
+        d = datetime.date.fromisoformat(deadline_str)
+    except ValueError:
+        return None
+    left = (d - datetime.datetime.now(_KST).date()).days
+    return {"date": f"{d.month}/{d.day}", "tail": "오늘 마감" if left == 0 else f"D-{left}" if left > 0 else ""}
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
     user = current_user(request)
@@ -279,12 +329,27 @@ def dashboard(request: Request):
         for c in CATEGORY_ORDER if grouped[c]
     ]
 
+    locked = deadline_passed()
+    deadline = db.get_setting("deadline")
+    for m in mine:
+        m["status"] = "done" if m["done"] else ("partial" if m["answered"] > 0 else "wait")
+    ordered = [m for c in categories for m in c["entries"]]
+    nxt = None
+    if not locked:   # 이어서 평가하기: 쓰다 만 것을 먼저, 없으면 화면 순서상 첫 미완료
+        nxt = next((m for m in ordered if m["status"] == "partial"), None) or next((m for m in ordered if m["status"] == "wait"), None)
+
+    summary = _dash_summary(mine, deadline, locked)
     return templates.TemplateResponse(request, "dashboard.html", {
         "user": user, "categories": categories,
         "pending_count": sum(1 for m in mine if not m["done"]),
         "completed_count": sum(1 for m in mine if m["done"]),
-        "is_locked": deadline_passed(),
-        "deadline": db.get_setting("deadline"),
+        "total_count": len(mine),
+        "is_locked": locked,
+        "deadline": deadline,
+        "deadline_label": _dash_deadline_label(deadline),
+        "summary": summary,
+        "next_item": nxt,
+        "mascot_intro": summary["intro"],
     })
 
 
