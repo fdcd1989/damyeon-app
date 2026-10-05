@@ -83,7 +83,9 @@
       st.top = (mode === 'fixed' ? r.top : r.top + window.pageYOffset) + 'px';
       st.width = r.width + 'px';
     };
-    var placed = function () { el.classList.add('is-placed'); };
+    var placed = function () { el.classList.add('is-placed'); emit(false); };
+    // 말풍선 등 다른 스크립트가 위치를 따라갈 수 있도록 알린다
+    function emit(isMoving) { document.dispatchEvent(new CustomEvent('mascot:moved', { detail: { state: state, moving: !!isMoving } })); }
     var endMove = function (after) {
       clearTimeout(moveTimer);
       moveTimer = setTimeout(function () { moving = false; el.classList.remove('is-gliding'); if (after) after(); }, reduce ? 0 : 420);
@@ -97,7 +99,8 @@
       void el.offsetWidth;
       if (!reduce) el.classList.add('is-gliding');
       put('fixed', target);
-      endMove(settle);
+      emit(true);
+      endMove(function () { if (settle) settle(); emit(false); });
     }
     function layout(animate) {
       if (!desktopMQ.matches) {                       // 모바일/좁은 화면
@@ -134,5 +137,6 @@
     relayout();
   }
 
-  window.Mascot = { greet: function () { play('greet'); }, cheer: function () { play('cheer'); } };
+  window.Mascot = { greet: function () { play('greet'); }, cheer: function () { play('cheer'); },
+                    state: function () { return typeof state === 'undefined' ? null : state; } };
 })();

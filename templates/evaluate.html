@@ -131,6 +131,7 @@
 </div>
 
 {% set mascot_class = 'mascot--eval' %}{% include "_mascot.html" %}
+<script src="/static/mascot_bubble.js?v=1" defer></script>
 
 <script>
 var IS_LOCKED = {{ 'true' if is_locked else 'false' }};
@@ -150,6 +151,7 @@ function setDirty() {
 function markAllNA() {
   document.querySelectorAll('#eval-form input[type=radio][value="NA"]').forEach(function(el) { el.checked = true; });
   setDirty();
+  if (window.MascotBubble) MascotBubble.onNA();
 }
 function toggleComment(i) {
   var box = document.getElementById('comment_' + i);
@@ -209,7 +211,7 @@ form.addEventListener('submit', function(e) {
   if (IS_LOCKED) return;
   e.preventDefault();
   saveNow().then(function(r) {
-    if (r.ok) { var d = describe(r.data); showToast(d.msg, d.kind, d.sub); if (window.Mascot) Mascot.cheer(); }
+    if (r.ok) { var d = describe(r.data); showToast(d.msg, d.kind, d.sub); if (window.Mascot) Mascot.cheer(); if (window.MascotBubble) MascotBubble.afterSave(r.data); }
   });
 });
 

@@ -247,6 +247,22 @@
     .dash-bubble .btn-continue { width: 100%; text-align: center; }
   }
 
+  /* ---- 마스코트 말풍선 (평가 화면) ---- */
+  .mascot-bubble { position: fixed; z-index: 7; max-width: 300px; box-sizing: border-box; padding: 10px 34px 10px 14px; border-radius: 14px;
+                   background: #fff; border: 1.5px solid #9CC97A; color: #2F4A18; font-size: 13.5px; line-height: 1.5; font-weight: 600;
+                   box-shadow: 0 6px 20px rgba(31,56,100,.16); pointer-events: none; opacity: 0; transform: translateY(4px) scale(.97);
+                   transition: opacity .18s ease, transform .18s ease; visibility: hidden; }
+  .mascot-bubble.show { opacity: 1; transform: none; visibility: visible; }
+  .mascot-bubble .mb-close, .mascot-bubble .mb-act { pointer-events: auto; cursor: pointer; font-family: inherit; }
+  .mascot-bubble .mb-close { position: absolute; top: 4px; right: 6px; border: 0; background: transparent; color: #7B8494; font-size: 14px; line-height: 1; padding: 4px; }
+  .mascot-bubble .mb-close:hover { color: #1F3864; }
+  .mascot-bubble .mb-act { display: block; margin-top: 6px; border: 0; background: transparent; color: #6B7280; font-size: 11.5px; font-weight: 500; text-decoration: underline; padding: 2px 0; text-align: left; }
+  .mascot-bubble .mb-act:hover { color: #1F3864; }
+  .mascot-bubble .mb-tail { position: absolute; width: 12px; height: 12px; background: #fff; transform: rotate(45deg); }
+  .mascot-bubble.is-left .mb-tail { right: -7px; top: var(--tail, 24px); border-right: 1.5px solid #9CC97A; border-top: 1.5px solid #9CC97A; }
+  .mascot-bubble.is-below .mb-tail { top: -7px; left: var(--tail, 24px); border-left: 1.5px solid #9CC97A; border-top: 1.5px solid #9CC97A; }
+  @media print { .mascot-bubble { display: none; } }
+
   /* ---- 마스코트 ---- */
   .mascot { display: block; position: relative; padding: 0; border: 0; background: transparent; cursor: pointer;
             width: 140px; aspect-ratio: 1; flex-shrink: 0; mix-blend-mode: multiply; -webkit-tap-highlight-color: transparent; }
