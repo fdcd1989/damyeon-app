@@ -72,7 +72,21 @@
     visible = true; place(); void box.offsetWidth; box.classList.add('show');
     hideTimer = setTimeout(hide, ms || CFG.showMs);
   }
-  var muteAction = { label: '그만 말하기', run: function () { muted = true; local.set('mascotMute', '1'); hide(); } };
+  /* 끄기/켜기: 말풍선의 '그만 말하기', 캐릭터 클릭 후 '다시 말하기', 사이드바 하단의 토글 버튼이 모두 같은 함수를 쓴다 */
+  var toggle = document.getElementById('bubble-toggle');
+  function refreshToggle() {
+    if (!toggle) return;
+    toggle.hidden = !!(reduce || locked);                    // 동작 줄이기·마감 후에는 말풍선 자체가 없으므로 버튼도 숨김
+    toggle.setAttribute('aria-pressed', muted ? 'false' : 'true');
+    toggle.textContent = muted ? '💬 캐릭터 말풍선: 꺼짐 (눌러서 켜기)' : '💬 캐릭터 말풍선: 켜짐 (눌러서 끄기)';
+  }
+  function setMuted(v, announce) {
+    muted = !!v; local.set('mascotMute', muted ? '1' : '0'); hide(); refreshToggle();
+    if (!muted && announce && !reduce && !locked) show('다시 말할게요! 😊', 3000, muteAction);
+  }
+  var muteAction = { label: '그만 말하기', run: function () { setMuted(true); } };
+  if (toggle) toggle.addEventListener('click', function () { setMuted(!muted, true); });
+  refreshToggle();
 
   elClose.addEventListener('click', hide);
   document.addEventListener('mascot:moved', function (e) { if (e.detail && e.detail.moving) hide(); else place(); });
@@ -156,9 +170,9 @@
   /* ---------- 캐릭터를 눌렀는데 조용히 설정이라면 다시 켤 수 있게 ---------- */
   mascot.addEventListener('click', function () {
     if (!muted || reduce) return;
-    show(pick(LINES.unmute), 7000, { label: '다시 말하기', run: function () { muted = false; local.set('mascotMute', '0'); hide(); show('다시 말할게요! 😊', 3000); } });
+    show(pick(LINES.unmute), 7000, { label: '다시 말하기', run: function () { setMuted(false, true); } });
   });
 
   window.MascotBubble = { afterSave: afterSave, onNA: onNA, say: function (k, v) { return canSpeak({ force: true }) && say(k, v); },
-                          isMuted: function () { return muted; } };
+                          isMuted: function () { return muted; }, setMuted: setMuted };
 })();

@@ -665,11 +665,24 @@ def incomplete_writers(round_id=None):
     return sorted(result, key=lambda x: (-x["remaining"], x["name"]))
 
 
+# 결과 엑셀 컬럼. 앞 12개는 기존 리포트 엔진이 검증한 구성이므로 이름·순서를 바꾸지 않고,
+# 새 컬럼은 항상 맨 뒤에만 추가한다 (엔진이 모르는 컬럼은 무시하므로 기존 파이프라인과 호환).
+EXPORT_COLUMNS_LEGACY = ["리뷰 대상자", "그룹", "팀", "직군", "직급", "역할", "리뷰 작성자", "관계유형", "질문/업적", "등급", "코멘트 내용", "총평"]
+EXPORT_COLUMNS_NEW = ["리뷰 대상자 이메일", "리뷰 작성자 이메일", "작성자 그룹", "작성자 팀", "문항 번호", "응답 완료", "회차"]
+EXPORT_COLUMNS = EXPORT_COLUMNS_LEGACY + EXPORT_COLUMNS_NEW
+
+
 def export_dataframe(round_id=None):
-    """리포트 엔진(build_final.py)이 바로 읽을 수 있는 스키마로 추출 (현재 회차만).
-    기존에 검증된 컬럼 구성은 그대로 두고, 맨 뒤에 '총평' 컬럼만 추가했다
-    (문항별 행과 섞이지 않도록 매핑당 값을 그대로 반복 — 리포트 엔진이 모르는
-    컬럼은 무시하므로 기존 파이프라인과 호환된다)."""
+    """리포트 엔진(build_final.py)이 바로 읽을 수 있는 스키마로 추출 (지정 회차, 기본은 현재 회차).
+
+    - 응답 1건 = 1행 (등급이 비어 있으면 N/A). '총평'은 매핑당 값이 그 매핑의 모든 행에 반복된다.
+    - 이메일 2종: 동명이인을 구분하고 로스터와 정확히 연결하기 위한 식별자.
+    - 작성자 그룹/팀: 같은 팀 평가 vs 타 부서 평가를 나눠 볼 수 있게 한다.
+    - 문항 번호: 1부터 시작하는 문항 순서 (회차 중 문구가 바뀌어도 같은 문항을 구분).
+    - 응답 완료: 그 매핑(평가자→대상자)의 모든 문항에 답했으면 '완료', 일부만이면 '미완료'.
+      자동 저장 때문에 '제출' 단계가 따로 없으므로, 최소응답자 수 판정에는 '완료'만 세는 것을 권장.
+      (현재 회차: 지금 활성 문항 수 기준 / 지난 회차: 같은 관계유형에서 가장 많이 답한 건수 기준)
+    - 회차: 회차명."""
     if round_id is None:
         round_id = get_current_round_id()
     conn = get_conn()
@@ -686,16 +699,38 @@ def export_dataframe(round_id=None):
             r.question_text as "질문/업적",
             r.score as "등급",
             r.comment as "코멘트 내용",
-            m.overall_comment as "총평"
+            m.overall_comment as "총평",
+            e.email as "리뷰 대상자 이메일",
+            w.email as "리뷰 작성자 이메일",
+            w.org_group as "작성자 그룹",
+            w.team as "작성자 팀",
+            r.question_index + 1 as "문항 번호",
+            m.id as "_mapping_id"
         FROM responses r
         JOIN mappings m ON m.id = r.mapping_id
         JOIN employees e ON e.id = m.target_id
         JOIN employees w ON w.id = m.writer_id
         WHERE m.round_id = ?
     """, (round_id,)).fetchall()
+    round_row = conn.execute("SELECT name FROM rounds WHERE id = ?", (round_id,)).fetchone()
     conn.close()
+    if not rows:
+        return pd.DataFrame(columns=EXPORT_COLUMNS)
+
     df = pd.DataFrame([dict(r) for r in rows])
-    return df
+    answered = df.groupby("_mapping_id")["문항 번호"].nunique()
+    if round_id == get_current_round_id():
+        questionnaire = relation_questionnaire()
+        total = df.groupby("_mapping_id")["관계유형"].first().map(lambda rel: len(questionnaire.get(rel, [])))
+    else:
+        # 지난 회차는 당시 문항 수를 알 수 없어, 같은 관계유형에서 가장 많이 답한 건수를 전체 문항 수로 본다
+        rel_of = df.groupby("_mapping_id")["관계유형"].first()
+        max_by_rel = answered.groupby(rel_of).max()
+        total = rel_of.map(max_by_rel)
+    complete = (answered >= total).map({True: "완료", False: "미완료"})
+    df["응답 완료"] = df["_mapping_id"].map(complete)
+    df["회차"] = round_row["name"] if round_row else ""
+    return df[EXPORT_COLUMNS].reset_index(drop=True)
 
 
 # ---------------------------------------------------------------
