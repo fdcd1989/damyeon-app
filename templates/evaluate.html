@@ -75,19 +75,20 @@
         </div>
         {% endif %}
 
-        <div class="eval-na-card">
-          <div class="icon">⌀</div>
-          <div class="text">
-            <span class="t1">이 사람과 업무 연관이 없으신가요?</span>
-            <span class="t2">버튼 한 번으로 모든 문항을 N/A로 표시</span>
-          </div>
-          <button type="button" onclick="markAllNA()" {% if is_locked %}disabled{% endif %}>전체 N/A로 표시</button>
-        </div>
       </div>
       <div class="eval-head-right">
         <span class="mascot-slot mascot-slot--main" id="mascot-slot-main" aria-hidden="true"></span>
         <div class="mascot-switch-row"><button type="button" class="bubble-switch bubble-switch--main" role="switch" aria-checked="true" aria-label="캐릭터 말풍선 켜기/끄기" title="캐릭터 말풍선 켜기/끄기" hidden><span class="bs-text">말풍선</span><span class="bs-track"><span class="bs-knob"></span></span><span class="bs-state">ON</span></button></div>
       </div>
+    </div>
+
+    <div class="eval-na-card">
+      <div class="icon">⌀</div>
+      <div class="text">
+        <span class="t1">이 사람과 업무 연관이 없으신가요?</span>
+        <span class="t2">버튼 한 번으로 모든 문항을 N/A로 표시</span>
+      </div>
+      <button type="button" onclick="markAllNA()" {% if is_locked %}disabled{% endif %}>전체 N/A로 표시</button>
     </div>
 
     <form method="post" action="/evaluate/{{ mapping.id }}" id="eval-form">
