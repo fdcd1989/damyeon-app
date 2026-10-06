@@ -15,7 +15,10 @@
         <div class="brand-title">다면평가</div>
         <div class="brand-sub">내 평가 목록</div>
       </div>
-      <span class="mascot-slot mascot-slot--side" id="mascot-slot-side" aria-hidden="true"></span>
+      <div class="mascot-side-col">
+        <span class="mascot-slot mascot-slot--side" id="mascot-slot-side" aria-hidden="true"></span>
+        <button type="button" class="bubble-switch bubble-switch--side" role="switch" aria-checked="true" aria-label="캐릭터 말풍선 켜기/끄기" title="캐릭터 말풍선 켜기/끄기" hidden><span class="bs-text">말풍선</span><span class="bs-track"><span class="bs-knob"></span></span><span class="bs-state">ON</span></button>
+      </div>
     </div>
 
     <div class="eval-progress-head">
@@ -45,7 +48,6 @@
 
     <div class="eval-sidebar-legend">
       회색 = 대기 · 주황 … = 작성 중 · 파란 테두리 = 지금 보는 중 · 초록 체크 = 완료
-      <div style="margin-top:8px;"><button type="button" id="bubble-toggle" class="bubble-toggle" aria-pressed="true" hidden>💬 캐릭터 말풍선: 켜짐 (눌러서 끄기)</button></div>
       <div style="margin-top:10px;">{{ credit_line() }}</div>
     </div>
   </aside>
@@ -82,7 +84,10 @@
           <button type="button" onclick="markAllNA()" {% if is_locked %}disabled{% endif %}>전체 N/A로 표시</button>
         </div>
       </div>
-      <div class="eval-head-right"><span class="mascot-slot mascot-slot--main" id="mascot-slot-main" aria-hidden="true"></span></div>
+      <div class="eval-head-right">
+        <span class="mascot-slot mascot-slot--main" id="mascot-slot-main" aria-hidden="true"></span>
+        <div class="mascot-switch-row"><button type="button" class="bubble-switch bubble-switch--main" role="switch" aria-checked="true" aria-label="캐릭터 말풍선 켜기/끄기" title="캐릭터 말풍선 켜기/끄기" hidden><span class="bs-text">말풍선</span><span class="bs-track"><span class="bs-knob"></span></span><span class="bs-state">ON</span></button></div>
+      </div>
     </div>
 
     <form method="post" action="/evaluate/{{ mapping.id }}" id="eval-form">

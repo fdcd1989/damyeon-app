@@ -102,8 +102,6 @@
     /* 화면을 아래로 내려도 사이드바(진행 현황·사람 목록·제목 줄)가 그대로 보이게 고정. 목록이 길면 사이드바 안에서만 스크롤 */
     .eval-sidebar { position: sticky; top: 0; height: 100vh; align-self: flex-start; padding-top: 0; }
     .eval-sidebar .brand { position: sticky; top: 0; z-index: 3; background: #fff; padding: 24px 0 12px; margin-bottom: 8px; }
-    /* 범례와 '말풍선 켜기/끄기' 버튼은 목록이 길어도 사이드바 아래쪽에 항상 보이게 고정 */
-    .eval-sidebar-legend { position: sticky; bottom: 0; z-index: 3; background: #fff; padding-bottom: 14px; }
   }
   .eval-progress-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; font-size: 13px; }
   .eval-progress-head .label { font-weight: 600; color: var(--navy); }
@@ -249,25 +247,40 @@
     .dash-bubble .btn-continue { width: 100%; text-align: center; }
   }
 
+  /* ---- 캐릭터 옆 말풍선 ON/OFF 스위치 ---- */
+  .eval-head-right { height: auto; }
+  .mascot-switch-row { display: flex; justify-content: flex-end; margin-top: 2px; }
+  .mascot-side-col { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin-left: auto; flex-shrink: 0; }
+  .eval-sidebar .brand { align-items: flex-start; }
+  .bubble-switch { display: none; align-items: center; gap: 6px; border: 1px solid #D5D9E0; background: #EEF0F4; color: #7B8494; border-radius: 999px;
+                   padding: 3px 9px 3px 10px; font: inherit; font-size: 11px; font-weight: 700; line-height: 1.2; cursor: pointer; white-space: nowrap;
+                   transition: background .15s, color .15s, border-color .15s; -webkit-tap-highlight-color: transparent; }
+  .bubble-switch .bs-track { position: relative; width: 24px; height: 14px; border-radius: 999px; background: #C3C9D3; transition: background .15s; flex-shrink: 0; }
+  .bubble-switch .bs-knob { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+  .bubble-switch .bs-state { min-width: 22px; text-align: left; }
+  .bubble-switch[aria-checked="true"] { background: #E6F2DA; border-color: #9CC97A; color: #2F5A12; }
+  .bubble-switch[aria-checked="true"] .bs-track { background: #6FA83A; }
+  .bubble-switch[aria-checked="true"] .bs-knob { transform: translateX(10px); }
+  .bubble-switch:hover { filter: brightness(.97); }
+  .bubble-switch:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  /* 캐릭터가 있는 자리의 스위치만 보인다 (제목 줄=home, 그 외=사이드바) */
+  body[data-mascot-state="home"] .bubble-switch--main { display: inline-flex; }
+  body:not([data-mascot-state="home"]) .bubble-switch--side { display: inline-flex; }
+  .bubble-switch[hidden] { display: none !important; }
+  @media (max-width: 860px) { .bubble-switch--main { display: none !important; } }
+
   /* ---- 마스코트 말풍선 (평가 화면) ---- */
   .mascot-bubble { position: fixed; z-index: 7; max-width: 300px; box-sizing: border-box; padding: 10px 34px 10px 14px; border-radius: 14px;
                    background: #fff; border: 1.5px solid #9CC97A; color: #2F4A18; font-size: 13.5px; line-height: 1.5; font-weight: 600;
                    box-shadow: 0 6px 20px rgba(31,56,100,.16); pointer-events: none; opacity: 0; transform: translateY(4px) scale(.97);
                    transition: opacity .18s ease, transform .18s ease; visibility: hidden; }
   .mascot-bubble.show { opacity: 1; transform: none; visibility: visible; }
-  .mascot-bubble .mb-close, .mascot-bubble .mb-act { pointer-events: auto; cursor: pointer; font-family: inherit; }
-  .mascot-bubble .mb-close { position: absolute; top: 4px; right: 6px; border: 0; background: transparent; color: #7B8494; font-size: 14px; line-height: 1; padding: 4px; }
+  .mascot-bubble .mb-close { pointer-events: auto; cursor: pointer; font-family: inherit; position: absolute; top: 4px; right: 6px; border: 0; background: transparent; color: #7B8494; font-size: 14px; line-height: 1; padding: 4px; }
   .mascot-bubble .mb-close:hover { color: #1F3864; }
-  .mascot-bubble .mb-act { display: block; margin-top: 6px; border: 0; background: transparent; color: #6B7280; font-size: 11.5px; font-weight: 500; text-decoration: underline; padding: 2px 0; text-align: left; }
-  .mascot-bubble .mb-act:hover { color: #1F3864; }
   .mascot-bubble .mb-tail { position: absolute; width: 12px; height: 12px; background: #fff; transform: rotate(45deg); }
   .mascot-bubble.is-left .mb-tail { right: -7px; top: var(--tail, 24px); border-right: 1.5px solid #9CC97A; border-top: 1.5px solid #9CC97A; }
   .mascot-bubble.is-below .mb-tail { top: -7px; left: var(--tail, 24px); border-left: 1.5px solid #9CC97A; border-top: 1.5px solid #9CC97A; }
-  .bubble-toggle { border: 0; background: transparent; padding: 2px 0; font: inherit; font-size: 11.5px; color: #6B7280; text-decoration: underline; cursor: pointer; text-align: left; }
-  .bubble-toggle:hover { color: var(--navy); }
-  .bubble-toggle[aria-pressed="false"] { color: #B7791F; }
-  .bubble-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 4px; }
-  @media print { .mascot-bubble, .bubble-toggle { display: none; } }
+  @media print { .mascot-bubble, .bubble-switch { display: none; } }
 
   /* ---- 마스코트 ---- */
   .mascot { display: block; position: relative; padding: 0; border: 0; background: transparent; cursor: pointer;
@@ -282,7 +295,7 @@
   .mascot--eval.is-placed { visibility: visible; }
   .mascot--eval.is-gliding { transition: left .38s cubic-bezier(.3,.7,.3,1), top .38s cubic-bezier(.3,.7,.3,1), width .38s cubic-bezier(.3,.7,.3,1); }
   .mascot-slot { display: block; width: 100%; aspect-ratio: 1; }
-  .mascot-slot--side { width: 56px; margin-left: auto; flex-shrink: 0; }
+  .mascot-slot--side { width: 56px; flex-shrink: 0; }
   @media (max-width: 860px) {
     .eval-head { grid-template-columns: 1fr; }
     .eval-head-right { display: none; }

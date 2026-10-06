@@ -1,6 +1,6 @@
 /* 평가 화면 마스코트 말풍선.
    원칙: 시간 간격으로 계속 말하지 않고 '상황'에 반응한다 / 점수를 유도하는 말은 하지 않는다 / 글 쓰는 중에는 끼어들지 않는다 /
-         ✕ 와 '그만 말하기'로 끌 수 있다 / OS '동작 줄이기'·마감 후에는 말하지 않는다.
+         ✕ 로 닫고, 캐릭터 옆 ON/OFF 스위치로 끌 수 있다 / OS '동작 줄이기'·마감 후에는 말하지 않는다.
    ▼ 문구는 아래 LINES 에서 고치면 됩니다. {next} 는 다음에 평가할 사람 이름(없으면 해당 문구는 건너뜀). */
 (function () {
   var LINES = {
@@ -11,8 +11,7 @@
     allDone:    ['모든 평가를 마쳤어요! 정말 고생하셨어요 🎉'],
     na:         ['업무 접점이 없으면 N/A가 맞아요, 편하게 표시하세요 🙂', '함께 일해 본 적이 없다면 N/A로 충분해요'],
     idleHelp:   ['점수가 고민되면 N/A로 두거나 나중에 이어서 해도 돼요. 정답은 없어요, 느낀 그대로면 충분해요 🙂'],
-    idleDirty:  ['입력한 내용은 [저장]을 누르거나 다른 분으로 이동할 때 자동 저장돼요 💾'],
-    unmute:     ['조용히 있을게요 🤫 다시 말하게 할까요?']
+    idleDirty:  ['입력한 내용은 [저장]을 누르거나 다른 분으로 이동할 때 자동 저장돼요 💾']
   };
   var CFG = { idleMs: 45000, showMs: 5500, idleShowMs: 8000, gapMs: 6000, maxNaPerSession: 2, maxIdlePerSession: 3, maxPersonDonePerSession: 6 };
 
@@ -37,9 +36,9 @@
   var box = document.createElement('div');
   box.className = 'mascot-bubble'; box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite');
   box.innerHTML = '<span class="mb-text"></span><button type="button" class="mb-close" aria-label="말풍선 닫기">✕</button>' +
-                  '<button type="button" class="mb-act"></button><span class="mb-tail"></span>';
+                  '<span class="mb-tail"></span>';
   document.body.appendChild(box);
-  var elText = box.querySelector('.mb-text'), elClose = box.querySelector('.mb-close'), elAct = box.querySelector('.mb-act');
+  var elText = box.querySelector('.mb-text'), elClose = box.querySelector('.mb-close');
   var hideTimer = null, visible = false, lastEnd = 0, lastInput = 0;
 
   function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
@@ -57,39 +56,40 @@
       left = r.left - 12 - bw; top = r.top + r.height / 2 - bh / 2;
       box.style.setProperty('--tail', Math.max(10, Math.min(bh - 22, r.top + r.height / 2 - top - 6)) + 'px');
     } else {                                               // 캐릭터 아래, 오른쪽 정렬 (사이드바/모바일의 진행 현황 줄 위)
-      left = r.right - bw; top = r.bottom + 10;
+      var vis = switches.filter(function (x) { return x.offsetParent !== null; })[0];
+      left = r.right - bw; top = Math.max(r.bottom, vis ? vis.getBoundingClientRect().bottom : 0) + 8;
       box.style.setProperty('--tail', Math.max(14, Math.min(bw - 28, r.left + r.width / 2 - Math.max(8, left) - 6)) + 'px');
     }
     left = Math.max(8, Math.min(left, vw - bw - 8)); top = Math.max(8, Math.min(top, vh - bh - 8));
     box.style.left = left + 'px'; box.style.top = top + 'px';
   }
   function hide() { visible = false; clearTimeout(hideTimer); box.classList.remove('show'); lastEnd = Date.now(); }
-  function show(text, ms, action) {
+  function show(text, ms) {
     clearTimeout(hideTimer);
     elText.textContent = text;
-    if (action) { elAct.textContent = action.label; elAct.onclick = action.run; elAct.style.display = ''; }
-    else { elAct.style.display = 'none'; elAct.onclick = null; }
     visible = true; place(); void box.offsetWidth; box.classList.add('show');
     hideTimer = setTimeout(hide, ms || CFG.showMs);
   }
-  /* 끄기/켜기: 말풍선의 '그만 말하기', 캐릭터 클릭 후 '다시 말하기', 사이드바 하단의 토글 버튼이 모두 같은 함수를 쓴다 */
-  var toggle = document.getElementById('bubble-toggle');
-  function refreshToggle() {
-    if (!toggle) return;
-    toggle.hidden = !!(reduce || locked);                    // 동작 줄이기·마감 후에는 말풍선 자체가 없으므로 버튼도 숨김
-    toggle.setAttribute('aria-pressed', muted ? 'false' : 'true');
-    toggle.textContent = muted ? '💬 캐릭터 말풍선: 꺼짐 (눌러서 켜기)' : '💬 캐릭터 말풍선: 켜짐 (눌러서 끄기)';
+  /* 끄기/켜기: 캐릭터 바로 아래의 ON/OFF 스위치. 캐릭터가 있는 자리(제목 줄 / 사이드바)의 스위치만 보인다. */
+  var switches = Array.prototype.slice.call(document.querySelectorAll('.bubble-switch'));
+  function refreshSwitches() {
+    switches.forEach(function (sw) {
+      sw.hidden = !!(reduce || locked);                      // 동작 줄이기·마감 후에는 말풍선 자체가 없으므로 스위치도 숨김
+      sw.setAttribute('aria-checked', muted ? 'false' : 'true');
+      var st = sw.querySelector('.bs-state'); if (st) st.textContent = muted ? 'OFF' : 'ON';
+    });
   }
   function setMuted(v, announce) {
-    muted = !!v; local.set('mascotMute', muted ? '1' : '0'); hide(); refreshToggle();
-    if (!muted && announce && !reduce && !locked) show('다시 말할게요! 😊', 3000, muteAction);
+    muted = !!v; local.set('mascotMute', muted ? '1' : '0'); hide(); refreshSwitches();
+    if (!muted && announce && !reduce && !locked) show('다시 말할게요! 😊', 3000);
   }
-  var muteAction = { label: '그만 말하기', run: function () { setMuted(true); } };
-  if (toggle) toggle.addEventListener('click', function () { setMuted(!muted, true); });
-  refreshToggle();
+  switches.forEach(function (sw) { sw.addEventListener('click', function () { setMuted(!muted, true); }); });
+  function syncState(st) { if (st) document.body.setAttribute('data-mascot-state', st); }
+  syncState(window.Mascot && window.Mascot.state && window.Mascot.state());
+  refreshSwitches();
 
   elClose.addEventListener('click', hide);
-  document.addEventListener('mascot:moved', function (e) { if (e.detail && e.detail.moving) hide(); else place(); });
+  document.addEventListener('mascot:moved', function (e) { syncState(e.detail && e.detail.state); if (e.detail && e.detail.moving) hide(); else place(); });
   var ticking = false;
   var reposition = function () { if (!visible || ticking) return; ticking = true; requestAnimationFrame(function () { ticking = false; place(); }); };
   window.addEventListener('scroll', reposition, { passive: true });
@@ -110,7 +110,7 @@
     var list = LINES[kind]; if (!list) return false;
     var text = pick(list);
     if (text.indexOf('{next}') >= 0) { if (!vars || !vars.next) return false; text = text.split('{next}').join(vars.next); }
-    show(text, ms, muteAction); return true;
+    show(text, ms); return true;
   }
 
   /* ---------- 저장 후: 진행 상황에 맞는 한마디 ---------- */
@@ -166,12 +166,6 @@
   document.addEventListener('input', function () { lastInput = Date.now(); armIdle(); }, true);
   document.addEventListener('visibilitychange', function () { if (document.hidden) { hide(); } else { armIdle(); } });
   armIdle();
-
-  /* ---------- 캐릭터를 눌렀는데 조용히 설정이라면 다시 켤 수 있게 ---------- */
-  mascot.addEventListener('click', function () {
-    if (!muted || reduce) return;
-    show(pick(LINES.unmute), 7000, { label: '다시 말하기', run: function () { setMuted(false, true); } });
-  });
 
   window.MascotBubble = { afterSave: afterSave, onNA: onNA, say: function (k, v) { return canSpeak({ force: true }) && say(k, v); },
                           isMuted: function () { return muted; }, setMuted: setMuted };
